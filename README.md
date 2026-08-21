@@ -2,7 +2,7 @@
 
 # Containerised Digital Twin Platform for Evaluating Network Impacts of DER Integration
 
-**A containerised digital-twin platform for evaluating the network impacts of DER integration**
+**Solver-agnostic QSTS power flow, Australian DER regulatory modelling, seven containers on one message bus**
 
 [![Licence](https://img.shields.io/badge/licence-Apache--2.0-blue.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-332%20passing-brightgreen.svg)](#verification)
@@ -12,7 +12,7 @@
 
 </div>
 
-Containerised Digital Twin Platform for Evaluating Network Impacts of DER Integration generates per-bus load, PV, battery (BESS) and EV profiles for any
+This platform generates per-bus load, PV, battery (BESS) and EV profiles for any
 uploaded distribution network, solves single- or multi-day quasi-static
 time-series (QSTS) power flow on single- or multi-voltage (MV/LV) feeders,
 coordinates demand-response control across per-prosumer shadow twins, models the
@@ -25,7 +25,7 @@ final-year engineering project at Swinburne University of Technology.
 
 <!-- Add a control-panel screenshot here once captured, it is the single
      highest-impact addition to this page:
-     ![Containerised Digital Twin Platform for Evaluating Network Impacts of DER Integration control panel](docs/images/control-panel.png)
+     ![Control panel](docs/images/control-panel.png)
 -->
 
 ## What makes it different
@@ -80,19 +80,103 @@ see [WINDOWS.md](WINDOWS.md) and the [Run](#run) section.
 
 ## Architecture
 
-```text
-Browser  ── HTTP ──▶  UI server (Node.js/Express, port 3001)
-                          │
-                          │  OpenFMB command/event messages over NATS (4222)
-                          ▼
-        Load Engine (8001)  ── profiles payload ──▶  Simulation Engine (8002)
-                                                          │
-                                    solver bus contract   │   DR status/control over NATS
-                                  ┌───────────────────────┼───────────────────────┐
-                                  ▼                       ▼                       ▼
-                        OpenDSS Solver          DR Controller       Prosumer Shadow Twins
-                     (or PSS SINCAL adapter)
+### Deployment topology
+
+Every service is a container and a first-class bus participant. The browser
+talking to the UI server is the only HTTP in the stack.
+
+```mermaid
+flowchart TB
+    B["Browser"]
+
+    subgraph stack["Docker Compose stack (Linux or Windows containers)"]
+        UI["<b>ui</b><br/>Node.js / Express<br/>host :3001"]
+
+        NATS{{"<b>broker</b> — NATS 2<br/>OpenFMB command / event bus<br/>:4222 · monitoring :8222"}}
+
+        LE["<b>load-engine</b><br/>FastAPI :8001<br/>load · PV · BESS · EV profiles"]
+        SE["<b>simulation-engine</b><br/>FastAPI :8002<br/>QSTS orchestration · KPIs<br/>envelopes · DR coordination"]
+
+        subgraph solvers["Power-flow solvers, one contract, selected per run"]
+            DSS["<b>opendss-solver</b><br/>OpenDSS · default"]
+            SIN["<b>sincal-solver</b><br/>PSS SINCAL adapter"]
+        end
+
+        subgraph control["Control layer"]
+            DR["<b>dr-controller</b><br/>DR strategies · setpoints"]
+            TW["<b>prosumer-shadow-twins</b><br/>per-prosumer state · outcomes"]
+        end
+    end
+
+    B -- "HTTP" --> UI
+    UI <-- "generate · simulate · metadata" --> NATS
+    NATS <-- "profiles" --> LE
+    NATS <-- "studies · KPIs" --> SE
+    NATS <-- "build · solve · read · reset · teardown" --> DSS
+    NATS <-- "same contract, alternative backend" --> SIN
+    NATS <-- "configure · control" --> DR
+    NATS <-- "start · status · record" --> TW
+
+    classDef engine fill:#1f6feb22,stroke:#1f6feb,stroke-width:1px
+    classDef solver fill:#e0902a22,stroke:#e0902a,stroke-width:1px
+    classDef ctrl fill:#3fb95022,stroke:#3fb950,stroke-width:1px
+    classDef busnode fill:#8957e522,stroke:#8957e5,stroke-width:2px
+    class LE,SE,UI engine
+    class DSS,SIN solver
+    class DR,TW ctrl
+    class NATS busnode
 ```
+
+No inter-container HTTP and no shared profile or result volume: profiles, QSTS
+summaries, KPIs and chart series all travel inline in NATS messages. Topics
+follow `{prefix}/command/{service}/{action}` and
+`{prefix}/event/{service}/{action}` with correlation ids. The engine HTTP ports
+(8001, 8002) are published for host-side debugging only.
+
+### How one study runs
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant B as Browser
+    participant UI as ui
+    participant LE as load-engine
+    participant SE as simulation-engine
+    participant SV as solver, opendss or sincal
+    participant TW as prosumer-shadow-twins
+    participant DR as dr-controller
+
+    B->>UI: POST /api/pipeline
+    UI->>LE: command generate
+    LE-->>UI: event: profiles payload, inline
+    UI->>SE: command simulate, profiles inline
+
+    SE->>SV: build (network, solve_mode, DER elements)
+    SV-->>SE: session ready
+
+    loop each timestep
+        SE->>SV: solve (batched element updates)
+        SV-->>SE: converged flag
+        opt coordination enabled
+            SE->>TW: status
+            TW-->>SE: per-prosumer DER state
+            SE->>DR: control
+            DR-->>SE: setpoints
+            SE->>SV: solve (re-solve to fixed point)
+            SE->>TW: record outcome
+        end
+        SE->>SV: read (voltages, loadings, losses, VUF)
+        SV-->>SE: electrical state
+    end
+
+    SE->>SV: teardown
+    SE-->>UI: event: KPIs, result series, summaries
+    UI-->>B: JSON result
+```
+
+Autonomous AS/NZS 4777.2 inverter responses and operating-envelope caps are
+applied by the Simulation Engine inside the timestep loop, before the DR
+exchange. Solvers stay dumb: no control logic, no optimisation policy.
 
 | Service | Technology | Role |
 |---------|------------|------|

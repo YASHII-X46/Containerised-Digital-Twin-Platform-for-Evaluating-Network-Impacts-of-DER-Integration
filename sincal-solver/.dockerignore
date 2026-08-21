@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.git/
+.dockerignore
+Dockerfile.windows
+tests/
+sincal_work/

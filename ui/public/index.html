@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Digital Twin for DER Penetration</title>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" />
+  <link rel="stylesheet" href="css/styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
+  <script type="module" src="js/main.js"></script>
+</head>
+<body>
+  <!-- ============ HEADER ============ -->
+  <header class="appbar">
+    <div class="brand">
+      <div class="brand-title">Digital Twin for DER Penetration</div>
+    </div>
+    <div class="status-cluster" id="status-cluster">
+      <span class="dot-pill" data-svc="load"><i class="dot"></i> Load Engine</span>
+      <span class="dot-pill" data-svc="sim"><i class="dot"></i> Simulation Engine</span>
+      <span class="dot-pill" data-svc="broker"><i class="dot"></i> Message Broker</span>
+      <span class="net-chip" id="net-chip">No network selected</span>
+    </div>
+    <div class="appbar-actions">
+      <button class="icon-btn" id="theme-toggle" title="Toggle theme" aria-label="Toggle theme">◐</button>
+    </div>
+  </header>
+
+  <!-- ============ LAYOUT ============ -->
+  <div class="layout">
+    <!-- ---- CONFIG SIDEBAR ---- -->
+    <aside class="config card" id="config-panel">
+      <div class="card-head">
+        <h2>Scenario</h2>
+        <div class="presets" id="presets">
+          <button class="chip" data-preset="low">50%</button>
+          <button class="chip" data-preset="mid">100%</button>
+          <button class="chip" data-preset="high">150%</button>
+        </div>
+      </div>
+
+      <div class="fields">
+        <label class="field">Network
+          <select id="network_id"></select>
+        </label>
+        <div class="netrow">
+          <span class="muted" id="network-info">—</span>
+          <button class="btn ghost sm" id="btn-upload-network" title="Upload a network model in native JSON, PSS/E RAW or RAWX, or CIM CGMES XML format">Upload network</button>
+          <input type="file" id="network-file" accept=".json,.raw,.rawx,.xml,.cim,application/json,application/xml" hidden />
+        </div>
+        <div class="seg" id="busmode">
+          <button class="seg-btn active" data-mode="quick" title="Assign DERs across the network automatically from the sliders below">Automatic assignment</button>
+          <button class="seg-btn" data-mode="advanced" title="Use the per-bus configuration from the Buses tab">Per-bus editor</button>
+        </div>
+        <label class="field">Scenario name
+          <input type="text" id="scenario_name" value="pen100_seed42" />
+        </label>
+        <label class="field">Saved configurations
+          <div class="cfgrow">
+            <select id="saved_configs" title="Reload a previously saved set of controls"><option value="">Select a configuration</option></select>
+            <button class="btn ghost sm" id="cfg-save" title="Save every control under the current scenario name">Save</button>
+            <button class="btn ghost sm" id="cfg-delete" title="Delete the selected saved configuration">Delete</button>
+          </div>
+        </label>
+        <div class="grid2">
+          <label class="field">Seed<input type="number" id="seed" value="42" /></label>
+          <label class="field">Season
+            <select id="season"><option value="summer">summer</option><option value="winter">winter</option><option value="shoulder">shoulder</option></select>
+          </label>
+        </div>
+        <label class="field slider">
+          <span class="slider-label">DER penetration <b id="der_val">100%</b></span>
+          <input type="range" id="der_penetration_percent" min="0" max="200" step="5" value="100" />
+        </label>
+        <div class="grid2">
+          <label class="field" title="Steps per day; with resolution must span one 24-hour day">Timesteps / day<input type="number" id="timesteps" value="96" min="1" max="384" /></label>
+          <label class="field">Resolution (minutes)<input type="number" id="resolution_minutes" value="15" min="1" /></label>
+        </div>
+        <div class="grid2">
+          <label class="field" title="Number of days to simulate; the daily shape repeats with day-to-day variation">Days<input type="number" id="days" value="1" min="1" max="31" /></label>
+          <span></span>
+        </div>
+        <label class="field">PV buses <span class="muted">(blank assigns all load buses)</span>
+          <input type="text" id="pv_buses" value="" placeholder="all load buses" /></label>
+
+        <div class="section">
+          <div class="section-title">DER assignment and power flow</div>
+          <div class="grid2">
+            <label class="field slider"><span class="slider-label">BESS penetration <b id="bess_val">0.30</b></span><input type="range" id="bess_penetration" min="0" max="1" step="0.05" value="0.3" /></label>
+            <label class="field">BESS configuration<select id="bess_config"></select></label>
+          </div>
+          <div class="grid2">
+            <label class="field slider"><span class="slider-label">EV penetration <b id="ev_val">0.20</b></span><input type="range" id="ev_penetration" min="0" max="1" step="0.05" value="0.2" /></label>
+            <label class="field">EV configuration<select id="ev_config"></select></label>
+          </div>
+          <div class="grid2">
+            <label class="field">Coordination
+              <select id="coordination_mode"><option value="uncoordinated">uncoordinated</option><option value="dr_only">dr_only</option><option value="dr_p2p">dr_p2p</option></select>
+            </label>
+            <label class="field" title="Balanced solves the positive-sequence equivalent. Unbalanced solves a multi-phase model that honours per-bus phases and single-phase EV chargers.">Power flow
+              <select id="solve_mode"><option value="balanced">Balanced</option><option value="unbalanced">Unbalanced</option></select>
+            </label>
+          </div>
+          <div class="grid2">
+            <label class="field" title="Power-flow solver backend. Each solver runs as its own container behind the same bus contract; PSS SINCAL requires the sincal-solver adapter running where a licensed SINCAL is installed.">Solver
+              <select id="solver"><option value="opendss">OpenDSS</option><option value="sincal">PSS SINCAL</option></select>
+            </label>
+            <span></span>
+          </div>
+          <div class="grid2">
+            <label class="switch wide" title="Autonomous smart-inverter Volt-VAr (AS/NZS 4777.2): PV inverters inject reactive power at low voltage and absorb it at high voltage during the power-flow solve."><input type="checkbox" id="volt_var" /><span></span> Volt-VAr (AS/NZS 4777.2)</label>
+            <label class="switch wide" title="Autonomous smart-inverter Volt-Watt (AS/NZS 4777.2): PV inverters reduce real power linearly above 1.09 pu, down to a 20 percent floor at 1.10 pu."><input type="checkbox" id="volt_watt" /><span></span> Volt-Watt (AS/NZS 4777.2)</label>
+          </div>
+          <div class="grid2">
+            <label class="field" title="Per-site export limits: none, a fixed cap (today's static export limit), or dynamic operating envelopes computed from network headroom each interval">Export limits
+              <select id="doe_mode">
+                <option value="off">None</option>
+                <option value="static">Fixed limit</option>
+                <option value="dynamic">Dynamic envelope</option>
+              </select>
+            </label>
+            <label class="field doe-static" hidden title="Constant per-site export cap, e.g. the 1.5 kW fallback of Flexible Exports">Fixed limit (kW per site)<input type="number" id="doe_fixed_kw" value="1.5" step="0.5" min="0" /></label>
+          </div>
+          <div class="grid2 doe-dynamic" hidden>
+            <label class="field" title="How the computed headroom is shared between sites">Allocation
+              <select id="doe_allocation">
+                <option value="equal">Equal per site</option>
+                <option value="prorata">Pro-rata by capability</option>
+                <option value="max_total">Maximum total export</option>
+              </select>
+            </label>
+            <label class="switch wide" title="Enforce limits through the DR coordination loop (requires a coordination mode); otherwise sites comply autonomously at the inverter"><input type="checkbox" id="doe_managed" /><span></span> Managed via DR loop</label>
+          </div>
+          <div class="grid2">
+            <div class="toggles">
+              <span class="muted" title="All communication between services uses the OpenFMB message bus over NATS">Connected over the OpenFMB bus</span>
+            </div>
+          </div>
+          <details class="section adv" id="twin-cfg" hidden>
+            <summary class="section-title">Prosumer shadow twins</summary>
+            <div class="grid2">
+              <label class="field" title="Only buses with PV capacity above this value become a shadow twin. Zero includes any bus with a DER.">Minimum PV (kW)<input type="number" id="twin_min_pv_kw" value="0" step="0.5" min="0" /></label>
+              <label class="field" title="Assumed per-unit voltage when a bus reading is missing">Nominal voltage (pu)<input type="number" id="twin_nominal_v" value="1.0" step="0.01" min="0.8" max="1.2" /></label>
+            </div>
+            <div class="grid2">
+              <label class="switch wide" title="Track buses that have only an EV charger, with no PV or battery, as shadow twins"><input type="checkbox" id="twin_include_ev_only" checked /><span></span> Include EV-only buses</label>
+              <span></span>
+            </div>
+          </details>
+        </div>
+
+        <details class="section adv">
+          <summary class="section-title">Advanced modelling</summary>
+          <div class="grid2">
+            <label class="field">Reactive floor<input type="number" id="reactive_floor" value="0" step="0.05" min="0" max="0.95" title="Constant share of base reactive power always present. Zero gives a constant power factor." /></label>
+            <span></span>
+          </div>
+          <div class="subsec-title">Weather</div>
+          <div class="grid2">
+            <label class="field">Source
+              <select id="weather_source" title="Temperature source for HVAC and PV derating. None uses fixed season curves; the file source reads the measured CSV configured by WEATHER_FILE and falls back to the synthetic model on error.">
+                <option value="none">None (season curves)</option>
+                <option value="synthetic">Synthetic (offline)</option>
+                <option value="file">Measured file (WEATHER_FILE CSV)</option>
+              </select>
+            </label>
+            <span></span>
+          </div>
+          <div class="subsec-title">Tariff</div>
+          <div class="grid2">
+            <label class="field" title="Named tariff structure pricing the cost indicators (import cost, feed-in revenue)">Cost tariff
+              <select id="tariff"><option value="tou_residential">tou_residential</option></select>
+            </label>
+            <span></span>
+          </div>
+          <div class="subsec-title">Custom DER day-shapes</div>
+          <div class="grid2">
+            <label class="field" title="Replace the PV model with an uploaded measured PV day (kind pv) at every PV bus">PV shape<select id="pv_profile"><option value="">Model default</option></select></label>
+            <label class="field" title="Replace the EV charging model with an uploaded per-charger day (kind ev), scaled by charger rating and fleet size">EV shape<select id="ev_profile"><option value="">Model default</option></select></label>
+          </div>
+          <div class="grid2">
+            <label class="field">EV charging
+              <select id="ev_charging_mode" title="Baseline EV charging strategy">
+                <option value="uncontrolled">Uncontrolled</option>
+                <option value="offpeak">Off-peak</option>
+                <option value="smart">Smart</option>
+              </select>
+            </label>
+            <label class="field">Off-peak start hour<input type="number" id="ev_offpeak_start_hour" value="23" step="0.5" min="0" max="24" title="Hour the off-peak timer begins charging, in off-peak mode" /></label>
+          </div>
+          <div class="subsec-title">Load diversity (household aggregation)</div>
+          <div class="grid2">
+            <label class="switch wide"><input type="checkbox" id="diversity_enabled" checked /><span></span> Enabled</label>
+            <span></span>
+            <label class="field">ADMD (kW per home)<input type="number" id="diversity_admd" value="1.5" step="0.1" min="0.1" title="After-diversity maximum demand per home. Sets households per bus as base load divided by ADMD." /></label>
+            <label class="field">Time spread (minutes)<input type="number" id="diversity_sigma" value="45" step="5" min="0" title="Standard deviation of the per-household activity time shift" /></label>
+          </div>
+          <div class="subsec-title">EV arrival diversity</div>
+          <div class="grid2">
+            <label class="switch wide"><input type="checkbox" id="ev_diversity_enabled" checked /><span></span> Enabled</label>
+            <label class="field">Arrival spread (minutes)<input type="number" id="ev_diversity_sigma" value="60" step="5" min="0" title="Standard deviation of EV plug-in times across the bus" /></label>
+          </div>
+          <div class="subsec-title">Battery dispatch</div>
+          <div class="grid2">
+            <label class="field">Dispatch mode
+              <select id="bess_dispatch_mode" title="Self-consumption charges from surplus PV and discharges to load. Time of use charges off-peak and discharges at peak.">
+                <option value="self_consumption">Self-consumption</option>
+                <option value="time_of_use">Time of use</option>
+              </select>
+            </label>
+            <span></span>
+          </div>
+          <div class="grid2 bess-tou" hidden>
+            <label class="field" title="Hour the off-peak charge window starts">Charge start (hour)<input type="number" id="bess_charge_start" value="1" step="0.5" min="0" max="24" /></label>
+            <label class="field" title="Hour the off-peak charge window ends">Charge end (hour)<input type="number" id="bess_charge_end" value="6" step="0.5" min="0" max="24" /></label>
+          </div>
+          <div class="grid2 bess-tou" hidden>
+            <label class="field" title="Hour the peak discharge window starts">Discharge start (hour)<input type="number" id="bess_discharge_start" value="17" step="0.5" min="0" max="24" /></label>
+            <label class="field" title="Hour the peak discharge window ends">Discharge end (hour)<input type="number" id="bess_discharge_end" value="21" step="0.5" min="0" max="24" /></label>
+          </div>
+        </details>
+      </div>
+
+      <div class="action-bar single">
+        <button class="btn primary" id="btn-pipeline"><span class="spin hidden" id="pipe-spin"></span> Run pipeline</button>
+      </div>
+      <div class="stage-track" id="stage-track">
+        <div class="stage" data-stage="generate"><span class="stage-dot"></span><span class="stage-label">Generate profiles</span></div>
+        <div class="stage" data-stage="simulate"><span class="stage-dot"></span><span class="stage-label">Solve power flow (OpenDSS QSTS)</span></div>
+      </div>
+    </aside>
+
+    <!-- ---- OUTPUT ---- -->
+    <main class="output">
+      <nav class="tabs" id="tabs">
+        <button class="tab active" data-tab="network">Network</button>
+        <button class="tab" data-tab="buses">Buses</button>
+        <button class="tab sep" data-tab="summary">Summary</button>
+        <button class="tab" data-tab="voltage">Voltage</button>
+        <button class="tab" data-tab="violations">Violations</button>
+        <button class="tab" data-tab="thermal">Thermal</button>
+        <button class="tab" data-tab="dermix">DER Components</button>
+        <button class="tab sep" data-tab="compare">Compare</button>
+        <button class="tab" data-tab="study">Study</button>
+        <button class="tab sep" data-tab="system">System</button>
+        <button class="tab" data-tab="data">Bus Data</button>
+        <button class="tab" data-tab="log">Activity</button>
+      </nav>
+
+      <!-- NETWORK (interactive feeder map) -->
+      <section class="tab-panel active" data-panel="network">
+        <div class="card chart-card netgraph-card">
+          <div class="chart-title">Network topology
+            <span class="muted netgraph-hint">Feeder map. Node colour indicates bus voltage after a simulation run.</span>
+          </div>
+          <div class="netgraph" id="netgraph"></div>
+        </div>
+      </section>
+
+      <!-- SUMMARY -->
+      <section class="tab-panel" data-panel="summary">
+        <div id="metrics" class="metrics"><div class="empty">Run the pipeline to see results.</div></div>
+        <div class="card chart-card">
+          <div class="chart-title">Aggregate feeder net load (duck curve)</div>
+          <div class="canvas-wrap" id="wrap-duck"><canvas id="chart-duck"></canvas><div class="ph show">Run the pipeline to view results.</div></div>
+          <div id="day-energy" class="day-energy" hidden></div>
+        </div>
+      </section>
+
+      <!-- VOLTAGE -->
+      <section class="tab-panel" data-panel="voltage">
+        <div class="split">
+          <div class="card chart-card">
+            <div class="chart-title">Bus voltage envelope over time</div>
+            <div class="canvas-wrap" id="wrap-voltage"><canvas id="chart-voltage"></canvas><div class="ph show">Run the pipeline to view results.</div></div>
+          </div>
+          <div class="card chart-card">
+            <div class="chart-title">Voltage profile along the feeder</div>
+            <div class="canvas-wrap" id="wrap-vprofile"><canvas id="chart-vprofile"></canvas><div class="ph show">Run the pipeline to view results.</div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- VIOLATIONS -->
+      <section class="tab-panel" data-panel="violations">
+        <div class="split">
+          <div class="card chart-card">
+            <div class="chart-title">Voltage heatmap by bus and time
+              <span class="heat-legend"><span class="hl-lo"></span><span class="hl-mid"></span><span class="hl-hi"></span> low to high</span>
+            </div>
+            <div class="canvas-wrap" id="wrap-heatmap"><canvas id="heatmap"></canvas><div class="ph show">Run the pipeline to view results.</div></div>
+          </div>
+          <div class="card chart-card">
+            <div class="chart-title">Voltage violations per bus</div>
+            <div class="canvas-wrap" id="wrap-violbar"><canvas id="chart-violbar"></canvas><div class="ph show">Run the pipeline to view results.</div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- THERMAL -->
+      <section class="tab-panel" data-panel="thermal">
+        <div class="split">
+          <div class="card chart-card">
+            <div class="chart-title">Maximum loading per branch</div>
+            <div class="canvas-wrap" id="wrap-branch"><canvas id="chart-branch"></canvas><div class="ph show">Run the pipeline to view results.</div></div>
+          </div>
+          <div class="card chart-card">
+            <div class="chart-title">Maximum branch loading over time</div>
+            <div class="canvas-wrap" id="wrap-loadtime"><canvas id="chart-loadtime"></canvas><div class="ph show">Run the pipeline to view results.</div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- DER MIX -->
+      <section class="tab-panel" data-panel="dermix">
+        <div class="card chart-card">
+          <div class="chart-title">Aggregate DER components over time</div>
+          <div class="canvas-wrap" id="wrap-dermix"><canvas id="chart-dermix"></canvas><div class="ph show">Run the pipeline to view results.</div></div>
+        </div>
+      </section>
+
+      <!-- COMPARE -->
+      <section class="tab-panel" data-panel="compare">
+        <div class="compare-grid">
+          <div class="card chart-card">
+            <div class="chart-title">Maximum voltage versus DER penetration</div>
+            <div class="canvas-wrap" id="wrap-cmp-maxv"><canvas id="chart-cmp-maxv"></canvas><div class="ph show">Open this tab after running scenarios.</div></div>
+          </div>
+          <div class="card chart-card">
+            <div class="chart-title">Total losses versus DER penetration</div>
+            <div class="canvas-wrap" id="wrap-cmp-loss"><canvas id="chart-cmp-loss"></canvas><div class="ph show">Open this tab after running scenarios.</div></div>
+          </div>
+          <div class="card chart-card span2">
+            <div class="chart-title">Net load duck curve across penetration levels</div>
+            <div class="canvas-wrap" id="wrap-cmp-duck"><canvas id="chart-cmp-duck"></canvas><div class="ph show">Open this tab after running scenarios.</div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- STUDY (modular study runner: sweep / hosting capacity / monte carlo) -->
+      <section class="tab-panel" data-panel="study">
+        <div class="card buses-card">
+          <div class="chart-title">DER penetration study</div>
+          <p class="muted">Runs the current scenario settings across a study design and tabulates the registered impact indicators from each run. Hosting capacity raises penetration until the chosen indicator crosses its limit.</p>
+          <div class="bc-grid">
+            <label class="field">Study type
+              <select id="study_mode">
+                <option value="penetration_sweep">Penetration sweep</option>
+                <option value="hosting_capacity">Hosting capacity</option>
+                <option value="locational_hosting">Locational hosting capacity (per bus)</option>
+                <option value="monte_carlo">Monte Carlo (seeds)</option>
+              </select>
+            </label>
+            <label class="field" data-study="penetration_sweep">Penetration levels (%)<input type="text" id="study_pens" value="50,100,150,200" /></label>
+            <label class="field" data-study="monte_carlo">Seeds<input type="text" id="study_seeds" value="1,2,3,4,5" /></label>
+            <label class="field" data-study="hosting_capacity">Indicator
+              <select id="study_kpi"></select>
+            </label>
+            <label class="field" data-study="hosting_capacity">Threshold<input type="number" id="study_threshold" value="1" step="any" /></label>
+            <label class="field" data-study="hosting_capacity">Start, step, maximum (%)<input type="text" id="study_range" value="50,25,300" /></label>
+            <div class="field bc-apply-wrap"><button class="btn primary sm" id="study-run"><span class="spin hidden" id="study-spin"></span> Run study</button></div>
+          </div>
+          <div class="muted" id="study-status"></div>
+          <div class="table-wrap"><table id="study-table" class="be-table"><thead></thead><tbody></tbody></table></div>
+        </div>
+      </section>
+
+      <!-- BUSES (per-bus editor + custom profiles) -->
+      <section class="tab-panel" data-panel="buses">
+        <div class="split">
+          <div class="card buses-card">
+            <div class="chart-title">Per-bus configuration for <span id="be-network" class="muted">network</span></div>
+            <p class="muted be-hint">Edit any cell in the table below to set a bus's load model, base load, and DERs. Running the pipeline in <b>Per-bus editor</b> mode uses this table. Select <b>Prefill</b> to populate it from the automatic assignment settings, or <b>Clear all DERs</b> to remove every PV system, battery, and EV charger.</p>
+
+            <div class="dss-toolbar">
+              <button class="btn ghost sm" id="be-prefill">Prefill from automatic settings</button>
+              <button class="btn ghost sm" id="be-clear-der">Clear all DERs</button>
+              <span class="muted" id="be-status"></span>
+            </div>
+            <div class="table-wrap be-wrap">
+              <table id="be-table" class="be-table">
+                <thead><tr>
+                  <th>Bus</th><th>Load (kW)</th><th>Reactive (kvar)</th><th>Profile</th>
+                  <th>PV (kW)</th><th>Battery</th>
+                  <th title="Maximum charge power. 0 uses the battery's default rate.">Charge (kW)</th>
+                  <th title="Maximum discharge power. 0 uses the battery's default rate.">Discharge (kW)</th>
+                  <th>EV</th>
+                </tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="card model-card">
+            <div class="chart-title">Custom profiles</div>
+            <p class="muted">Upload any daily shape as CSV: one value per line, a single comma-separated line, or time and value rows. Any length and units are accepted; the shape is normalised to per-unit of peak. Load shapes become selectable as <code>custom:name</code> in the Profile column; PV and EV shapes are selected under Advanced modelling.</p>
+            <div class="fields">
+              <div class="grid2">
+                <label class="field">Profile name<input type="text" id="cp-name" placeholder="for example bakery_weekday" /></label>
+                <label class="field">Shape kind
+                  <select id="cp-kind" title="What the shape drives: a load customer class, a measured PV day, or a per-charger EV day">
+                    <option value="load">Load (customer class)</option>
+                    <option value="pv">PV (measured day)</option>
+                    <option value="ev">EV (per-charger day)</option>
+                  </select>
+                </label>
+              </div>
+              <label class="field">CSV values
+                <textarea id="cp-values" rows="4" placeholder="0.31&#10;0.30&#10;0.28"></textarea>
+              </label>
+              <div class="dss-toolbar">
+                <button class="btn ghost sm" id="cp-file-btn">Load from file</button>
+                <input type="file" id="cp-file" accept=".csv,.txt" hidden />
+                <button class="btn primary sm" id="cp-upload">Upload profile</button>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table id="cp-table" class="be-table">
+                <thead><tr><th>Name</th><th>Kind</th><th>Points</th><th>Description</th><th></th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- SYSTEM (live modular-registry map) -->
+      <section class="tab-panel" data-panel="system">
+        <div class="card sys-card">
+          <div class="chart-title">Live module registries
+            <span class="muted">Every device type is a registered plugin. This view reflects what each engine has installed right now.</span>
+          </div>
+          <div class="modules-grid" id="modules-grid">
+            <div class="empty">Connecting to engines.</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- DATA -->
+      <section class="tab-panel" data-panel="data">
+        <div class="card buses-card">
+          <div class="chart-title">Per-bus voltage <span id="dl-links" class="dl-links"></span></div>
+          <div class="table-wrap" id="buses-wrap">
+            <table id="bus-table"><thead><tr><th>Bus</th><th>Minimum (pu)</th><th>Mean (pu)</th><th>Maximum (pu)</th><th>Violations</th></tr></thead><tbody></tbody></table>
+          </div>
+          <div class="pager" id="bus-pager">
+            <button class="btn ghost sm" id="bus-prev">Previous</button>
+            <span id="bus-page-ind" class="muted">—</span>
+            <button class="btn ghost sm" id="bus-next">Next</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- LOG -->
+      <section class="tab-panel" data-panel="log">
+        <div class="card model-card"><pre id="log" class="code log"></pre></div>
+      </section>
+    </main>
+  </div>
+
+  <div class="toast-stack" id="toasts"></div>
+</body>
+</html>

@@ -1,0 +1,17 @@
+{
+  "name": "dt-stack-ui",
+  "version": "1.0.0",
+  "description": "Node.js control panel for the DT-Stack load, simulation, and NATS pipeline",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "nats": "^2.28.2"
+  }
+}

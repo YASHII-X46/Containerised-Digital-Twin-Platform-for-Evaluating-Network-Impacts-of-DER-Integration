@@ -1,0 +1,13 @@
+Containerised Digital Twin Platform for Evaluating Network Impacts of DER Integration
+Copyright 2026 Yashwanth K. Ediriweera
+
+Licensed under the Apache License, Version 2.0. See LICENSE.
+
+Developed for ENG40007 Final Year Project, Swinburne University of Technology.
+
+This product does NOT include PSS SINCAL, which is proprietary, licensed
+Siemens software. The sincal-solver service is an adapter only and requires a
+separately licensed PSS SINCAL installation.
+
+The EMS design reproduces concepts and terminology from the OpenEMS project
+(https://openems.io, EPL-2.0). No OpenEMS source code is included.

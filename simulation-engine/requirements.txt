@@ -1,0 +1,16 @@
+fastapi>=0.111.0
+uvicorn>=0.30.1
+# NOTE: the engine no longer bundles OpenDSS — power flow runs in the
+# opendss-solver container (see requirements-dev.txt for the test dependency).
+nats-py>=2.7.0
+# Kept below 2.0 to match the opendss-solver pin (shared dev environments).
+numpy>=1.26.4,<2.0
+# LP solver for the max_total envelope allocation (greedy fallback if absent);
+# 1.11-1.13 supports the NumPy 1.x pin above.
+scipy>=1.11,<1.14
+pydantic>=2.7.4
+pydantic-settings>=2.3.4
+pytest>=8.2.2
+httpx>=0.27.0
+anyio>=4.4.0
+pytest-asyncio>=0.23.7

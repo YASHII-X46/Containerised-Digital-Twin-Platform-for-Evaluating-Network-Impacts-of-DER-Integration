@@ -1,0 +1,7 @@
+# Test-only extras: the simulation-engine test suite runs the REAL
+# opendss-solver service in-process on the loopback bus (imported from the
+# sibling ../opendss-solver directory), which needs OpenDSS available locally.
+# The runtime container does NOT install this — power flow lives in the
+# opendss-solver container.
+-r requirements.txt
+OpenDSSDirect.py>=0.9.4,<0.10

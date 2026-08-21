@@ -1,0 +1,15 @@
+# NATS broker, Windows container (DT-Stack v5.0).
+#
+# The Linux deployment bind-mounts broker/nats.conf. That is not possible here:
+# this repository lives in OneDrive, and a Windows container cannot read a
+# bind mount backed by the OneDrive cloud-files filter. Reading such a mount
+# fails with "The file cannot be accessed by the system", which surfaces as
+# "nats-server: read C:\nats\nats.conf: Incorrect function." So the config is
+# baked into the image instead. It stays version controlled, and the image
+# must be rebuilt after editing nats.conf.
+FROM nats:2.14-nanoserver
+
+COPY nats.conf C:/nats/nats.conf
+
+ENTRYPOINT ["C:\\nats-server.exe"]
+CMD ["--config", "C:\\nats\\nats.conf"]

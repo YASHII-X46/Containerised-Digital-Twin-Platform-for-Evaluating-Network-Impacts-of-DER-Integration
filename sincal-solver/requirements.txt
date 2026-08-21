@@ -1,0 +1,6 @@
+nats-py>=2.7.0
+pydantic-settings>=2.3.4
+pytest>=8.2.2
+# COM automation for PSS SINCAL — Windows only (the adapter must run where a
+# licensed PSS SINCAL installation exists).
+pywin32>=306; sys_platform == "win32"

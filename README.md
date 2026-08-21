@@ -86,45 +86,56 @@ Every service is a container and a first-class bus participant. The browser
 talking to the UI server is the only HTTP in the stack.
 
 ```mermaid
+%%{init: {"flowchart": {"curve": "basis", "wrappingWidth": 420, "nodeSpacing": 40, "rankSpacing": 55}} }%%
 flowchart TB
-    B["Browser"]
+    B["<b>Browser</b><br/>control panel"]
 
-    subgraph stack["Docker Compose stack (Linux or Windows containers)"]
-        UI["<b>ui</b><br/>Node.js / Express<br/>host :3001"]
-
-        NATS{{"<b>broker</b> — NATS 2<br/>OpenFMB command / event bus<br/>:4222 · monitoring :8222"}}
-
-        LE["<b>load-engine</b><br/>FastAPI :8001<br/>load · PV · BESS · EV profiles"]
-        SE["<b>simulation-engine</b><br/>FastAPI :8002<br/>QSTS orchestration · KPIs<br/>envelopes · DR coordination"]
-
-        subgraph solvers["Power-flow solvers, one contract, selected per run"]
-            DSS["<b>opendss-solver</b><br/>OpenDSS · default"]
-            SIN["<b>sincal-solver</b><br/>PSS SINCAL adapter"]
-        end
+    subgraph stack["Docker Compose stack &nbsp;·&nbsp; Linux or Windows containers"]
+        direction TB
+        UI["<b>ui</b><br/>Node.js · Express · host :3001"]
+        BUS(["<b>broker</b> · NATS 2 &nbsp;—&nbsp; OpenFMB command / event bus<br/>:4222 &nbsp;·&nbsp; monitoring :8222"])
 
         subgraph control["Control layer"]
-            DR["<b>dr-controller</b><br/>DR strategies · setpoints"]
-            TW["<b>prosumer-shadow-twins</b><br/>per-prosumer state · outcomes"]
+            DR["<b>dr-controller</b><br/>strategies · setpoints"]
+            TW["<b>prosumer-shadow-twins</b><br/>per-prosumer state"]
+        end
+
+        subgraph solvers["Solvers &nbsp;·&nbsp; one bus contract"]
+            DSS["<b>opendss-solver</b><br/>OpenDSS · default"]
+            SIN["<b>sincal-solver</b><br/>PSS SINCAL"]
+        end
+
+        subgraph engines["Engines"]
+            LE["<b>load-engine</b><br/>FastAPI :8001<br/>load · PV · BESS · EV"]
+            SE["<b>simulation-engine</b><br/>FastAPI :8002<br/>QSTS · KPIs · envelopes"]
         end
     end
 
-    B -- "HTTP" --> UI
-    UI <-- "generate · simulate · metadata" --> NATS
-    NATS <-- "profiles" --> LE
-    NATS <-- "studies · KPIs" --> SE
-    NATS <-- "build · solve · read · reset · teardown" --> DSS
-    NATS <-- "same contract, alternative backend" --> SIN
-    NATS <-- "configure · control" --> DR
-    NATS <-- "start · status · record" --> TW
+    B -. "HTTP" .-> UI
+    UI === BUS
+    BUS === LE
+    BUS === SE
+    BUS === DSS
+    BUS === SIN
+    BUS === DR
+    BUS === TW
 
-    classDef engine fill:#1f6feb22,stroke:#1f6feb,stroke-width:1px
-    classDef solver fill:#e0902a22,stroke:#e0902a,stroke-width:1px
-    classDef ctrl fill:#3fb95022,stroke:#3fb950,stroke-width:1px
-    classDef busnode fill:#8957e522,stroke:#8957e5,stroke-width:2px
-    class LE,SE,UI engine
+    classDef edge fill:#dbeafe,stroke:#2563eb,stroke-width:2px,color:#0c2a63
+    classDef solver fill:#fef3c7,stroke:#d97706,stroke-width:2px,color:#5b3608
+    classDef ctrl fill:#dcfce7,stroke:#16a34a,stroke-width:2px,color:#0d3b1e
+    classDef busnode fill:#ede9fe,stroke:#7c3aed,stroke-width:3px,color:#3b1080
+    class B,UI,LE,SE edge
     class DSS,SIN solver
     class DR,TW ctrl
-    class NATS busnode
+    class BUS busnode
+
+    style stack fill:#f8fafc,stroke:#94a3b8,stroke-width:1px,color:#475569
+    style engines fill:#eff6ff,stroke:#93c5fd,stroke-width:1px,color:#1d4ed8
+    style solvers fill:#fffbeb,stroke:#fcd34d,stroke-width:1px,color:#b45309
+    style control fill:#f0fdf4,stroke:#86efac,stroke-width:1px,color:#15803d
+
+    linkStyle default stroke:#7c3aed,stroke-width:2px
+    linkStyle 0 stroke:#64748b,stroke-width:1.5px
 ```
 
 No inter-container HTTP and no shared profile or result volume: profiles, QSTS
@@ -136,47 +147,60 @@ follow `{prefix}/command/{service}/{action}` and
 ### How one study runs
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#ffffff","primaryTextColor":"#0f172a","primaryBorderColor":"#64748b","lineColor":"#64748b","textColor":"#0f172a","actorBkg":"#ffffff","actorBorder":"#475569","actorTextColor":"#0f172a","actorLineColor":"#94a3b8","signalColor":"#334155","signalTextColor":"#1e293b","noteBkgColor":"#fef3c7","noteBorderColor":"#d97706","noteTextColor":"#5b3608","labelBoxBkgColor":"#e2e8f0","labelBoxBorderColor":"#94a3b8","labelTextColor":"#0f172a","loopTextColor":"#334155","sequenceNumberColor":"#ffffff"},"sequence":{"actorMargin":40,"boxMargin":10,"mirrorActors":false,"messageAlign":"center"}} }%%
 sequenceDiagram
     autonumber
-    participant B as Browser
-    participant UI as ui
-    participant LE as load-engine
-    participant SE as simulation-engine
-    participant SV as solver, opendss or sincal
-    participant TW as prosumer-shadow-twins
-    participant DR as dr-controller
+
+    box rgb(248,250,252) Docker Compose stack · every hop below is an OpenFMB NATS message
+        participant B as Browser
+        participant UI as ui
+        participant LE as load-engine
+        participant SE as simulation-engine
+        participant SV as opendss / sincal
+        participant DR as dr-controller
+        participant TW as prosumer-shadow-twins
+    end
 
     B->>UI: POST /api/pipeline
-    UI->>LE: command generate
-    LE-->>UI: event: profiles payload, inline
-    UI->>SE: command simulate, profiles inline
-
-    SE->>SV: build (network, solve_mode, DER elements)
+    UI->>LE: generate
+    LE-->>UI: profiles, inline
+    UI->>SE: simulate, profiles inline
+    SE->>SV: build · network, solve_mode, DER
     SV-->>SE: session ready
 
-    loop each timestep
-        SE->>SV: solve (batched element updates)
-        SV-->>SE: converged flag
-        opt coordination enabled
-            SE->>TW: status
-            TW-->>SE: per-prosumer DER state
-            SE->>DR: control
-            DR-->>SE: setpoints
-            SE->>SV: solve (re-solve to fixed point)
-            SE->>TW: record outcome
+    rect rgb(239,246,255)
+        loop every timestep
+            Note over SE: operating-envelope caps<br/>limit each site's export
+            SE->>SV: solve · batched element updates
+            SV-->>SE: converged
+            Note over SE: AS/NZS 4777.2 Volt-VAr / Volt-Watt<br/>computed from local voltage
+            SE->>SV: solve · after inverter response
+            SV-->>SE: converged
+            rect rgb(220,252,231)
+                opt coordination enabled
+                    SE->>TW: status
+                    TW-->>SE: per-prosumer DER state
+                    SE->>DR: control
+                    DR-->>SE: setpoints
+                    SE->>SV: solve · re-solve to fixed point
+                    SE->>TW: record outcome
+                end
+            end
+            SE->>SV: read · voltages, loadings, losses, VUF
+            SV-->>SE: electrical state
         end
-        SE->>SV: read (voltages, loadings, losses, VUF)
-        SV-->>SE: electrical state
     end
 
     SE->>SV: teardown
-    SE-->>UI: event: KPIs, result series, summaries
+    SE-->>UI: KPIs, result series, summaries
     UI-->>B: JSON result
 ```
 
-Autonomous AS/NZS 4777.2 inverter responses and operating-envelope caps are
-applied by the Simulation Engine inside the timestep loop, before the DR
-exchange. Solvers stay dumb: no control logic, no optimisation policy.
+Operating-envelope caps limit each site's export *before* the solve; the
+autonomous AS/NZS 4777.2 Volt-VAr and Volt-Watt responses need the local
+voltage, so they are computed *after* it and the network re-solves. Both are
+the Simulation Engine's work and both precede the DR exchange. Solvers stay
+dumb: no control logic, no optimisation policy.
 
 | Service | Technology | Role |
 |---------|------------|------|

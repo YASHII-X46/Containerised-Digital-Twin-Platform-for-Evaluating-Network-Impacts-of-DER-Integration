@@ -1,14 +1,18 @@
-# Pinned to bookworm: on trixie (current :slim) the KLU runtime package
-# 'libklu1' that OpenDSSDirect.py needs is no longer available under that name.
-FROM python:3.11-slim-bookworm
+# Simulation Engine — Windows container (Containerised Digital Twin Platform v5.0).
+#
+# Solver-agnostic: no OpenDSS here. Power flow runs in opendss-solver (or the
+# sincal-solver adapter) and is reached over the solver bus contract.
+FROM python:3.12-windowsservercore-ltsc2025
 
-RUN apt-get update && apt-get install -y libklu1 && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /app
+WORKDIR C:\\app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --timeout 120 --retries 5 -r requirements.txt
 
 COPY app/ ./app/
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+RUN mkdir C:\\ready
+
+EXPOSE 8002
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002"]

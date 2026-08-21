@@ -1,0 +1,62 @@
+name: Bug report
+description: Something behaves differently from what the README or a docstring says
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please include enough for the behaviour to be reproduced. A study that
+        produced a surprising number is far easier to chase with the scenario
+        JSON attached.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you got instead.
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: How are you running it
+      options:
+        - Linux containers (docker-compose.yml)
+        - Windows containers (docker-compose.windows.yml)
+        - Services run directly with Python, no containers
+        - Just the test suite
+    validations:
+      required: true
+  - type: dropdown
+    id: service
+    attributes:
+      label: Which service
+      options:
+        - load-engine
+        - simulation-engine
+        - opendss-solver
+        - sincal-solver
+        - dr-controller
+        - prosumer-shadow-twins
+        - ui
+        - broker
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      description: Only if you are running outside containers.
+      placeholder: "3.12.4"
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or traceback
+      render: shell
+  - type: textarea
+    id: network
+    attributes:
+      label: Network model
+      description: >-
+        Bus count, voltage levels, and which format you imported. Please keep
+        anything you attach synthetic or already public.

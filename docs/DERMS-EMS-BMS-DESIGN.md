@@ -356,7 +356,7 @@ Three services added to both compose files following the existing patterns, bus
 only with no published HTTP ports, readiness healthchecks, and the Simulation
 Engine waiting on all three being healthy. The optional OpenEMS Edge bridge is
 not in the default compose file. `WINDOWS.md` gains the three services and their
-`Dockerfile.windows` files.
+`Dockerfile` files.
 
 Note for the Windows deployment: this brief takes the stack from eight services
 to eleven, and the twin brief would take it to fifteen. Every Windows image

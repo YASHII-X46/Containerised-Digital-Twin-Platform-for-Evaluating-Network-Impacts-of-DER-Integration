@@ -1,109 +1,145 @@
-# Containerised Digital Twin Platform for Evaluating Network Impacts of DER Integration v5.0 — modular digital-twin stack (any distribution network).
-# LINUX CONTAINER deployment (the default). For the full Windows-container
-# stack — the only mode where the PSS SINCAL solver is a compose service
-# rather than a host-run process — use docker-compose.windows.yml and see
-# WINDOWS.md. Docker Desktop runs one container OS at a time, so the two
-# compose files are alternatives, never both at once.
+# Containerised Digital Twin Platform for Evaluating Network Impacts of DER Integration v5.0.
 #
-#   broker             NATS message bus (OpenFMB command/event messages)
-#   load-engine        FastAPI — load/PV/BESS/EV profiles; custom load profiles
-#   simulation-engine  FastAPI — QSTS orchestration, KPIs, envelopes, DR (solver-agnostic)
-#   opendss-solver     NATS module — OpenDSS power flow behind the solver bus contract
-#   dr-controller      NATS module — DR strategy and DER control setpoints
-#   prosumer-shadow-twins  NATS module — shadow-twin state and DR outcomes
-#   ui                 Node.js control panel that drives the pipeline over NATS
+# Every service runs as a Windows container, which is what lets PSS SINCAL —
+# Windows-only software driven over COM — run as a first-class compose service
+# alongside the rest of the stack.
 #
-# Solvers are swappable containers: the simulate request picks one by name
-# ("opendss" default). A PSS SINCAL adapter (sincal-solver/) implements the
-# same contract but must run where a licensed Windows SINCAL installation
-# exists — see the commented note at the bottom of this file.
+#   Docker Desktop must be set to Windows containers
+#   (tray icon -> "Switch to Windows containers..."), then:
 #
-# All containers interconnect over the OpenFMB NATS bus only — the UI drives the
-# engines (metadata, networks, custom profiles, generate/simulate) entirely
-# through NATS command/event messages; there is no inter-container HTTP. The UI
-# keeps its own ./outputs bind mount for UI-owned persisted summaries; engines do
-# not depend on a shared file volume.
+#       docker compose up --build
+#       -> open http://localhost:3001
 #
-#   docker compose up --build
-#   → open http://localhost:3000
+# See WINDOWS.md for prerequisites, image sizes, isolation modes and the
+# SINCAL setup.
 #
-# Engine HTTP ports (8001/8002) are published only for host-side health/debugging
-# and are not used between containers.
+# Windows-container conventions this file follows:
+#   * bind mounts are DIRECTORIES — Windows mounts a folder, not a single
+#     file, so broker/ is mounted as a folder and the ui image is rebuilt to
+#     pick up server.js changes (ui/public is mounted, so browser assets stay
+#     live-editable);
+#   * healthchecks use python/node rather than shell built-ins like `test -f`;
+#   * readiness markers go to C:\ready\service.ready via READY_FILE.
 
 services:
   broker:
-    # NATS is the OpenFMB message bus (native NATS on 4222, monitoring on 8222).
-    image: nats:2
+    # NATS with nats.conf baked into the image. A bind mount is impossible in
+    # this deployment: the repository lives in OneDrive, and a Windows container
+    # cannot read a mount backed by the OneDrive cloud-files filter. Rebuild the
+    # broker image after editing broker/nats.conf.
+    build:
+      context: ./broker
+      dockerfile: Dockerfile
     container_name: dt-broker
-    command: ["-c", "/etc/nats/nats.conf"]
     ports:
       - "4222:4222"
       - "8222:8222"
-    volumes:
-      - ./broker/nats.conf:/etc/nats/nats.conf:ro
 
   load-engine:
-    build: ./load-engine
+    build:
+      context: ./load-engine
+      dockerfile: Dockerfile
     container_name: dt-load-engine
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8001
     environment:
       - BUS_TRANSPORT=nats
       - NATS_URL=nats://broker:4222
-      - CUSTOM_PROFILES_DIR=/app/data/custom_profiles
-      # Drop-in extensions, off by default. To add custom DER plugins / archetypes
-      # / weather providers without rebuilding, mount a directory of *.py files
+      - CUSTOM_PROFILES_DIR=C:\app\data\custom_profiles
+      # Drop-in extensions, off by default — mount a directory of *.py files
       # (each calling the relevant register()) and point DER_PLUGINS_DIR at it:
-      #   - DER_PLUGINS_DIR=/app/plugins
-      # or list importable modules:  - DER_PLUGIN_MODULES=myco.heatpump,myco.electrolyser
+      #   - DER_PLUGINS_DIR=C:\app\plugins
       # volumes:
-      #   - ./plugins:/app/plugins:ro
+      #   - ./plugins:C:\app\plugins:ro
     depends_on:
       broker:
         condition: service_started
-    # Recover if the process exits (e.g. the broker bounces and drops the bus).
     restart: on-failure
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=2)"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 20s
+      # Windows containers take a while to start — allow generous grace.
+      start_period: 60s
     ports:
       - "8001:8001"
 
   opendss-solver:
-    # Standalone power-flow solver: the Simulation Engine drives it over the
-    # solver bus contract (build/solve/read/reset/teardown). Swapping solvers
-    # means running a different container that speaks the same contract.
-    build: ./opendss-solver
+    # Default power-flow solver behind the solver bus contract.
+    build:
+      context: ./opendss-solver
+      dockerfile: Dockerfile
     container_name: dt-opendss-solver
     environment:
       - BUS_TRANSPORT=nats
       - NATS_URL=nats://broker:4222
       - BUS_PREFIX=openfmb
-      - DSS_DIR=/app/dss_work
+      - DSS_DIR=C:\dss_work
+      - READY_FILE=C:\ready\service.ready
     depends_on:
       broker:
         condition: service_started
     restart: on-failure
     healthcheck:
-      test: ["CMD-SHELL", "test -f /tmp/service.ready"]
+      test: ["CMD", "python", "-c", "import os,sys; sys.exit(0 if os.path.exists('C:/ready/service.ready') else 1)"]
       interval: 10s
-      timeout: 3s
+      timeout: 5s
       retries: 5
-      start_period: 30s
+      start_period: 60s
 
-  simulation-engine:
-    build: ./simulation-engine
-    container_name: dt-sim-engine
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8002
+  sincal-solver:
+    # PSS SINCAL adapter — the reason this Windows-only deployment exists.
+    # Requires a licensed PSS SINCAL reachable from the container: either
+    # installed into the image (Dockerfile OPTION A) or bind-mounted
+    # from the host (OPTION B, uncomment the volume below). Without it the
+    # service still starts and answers `health` with sincal_available:false,
+    # and `build` fails with a clear error — it never fakes a solve.
+    build:
+      context: ./sincal-solver
+      dockerfile: Dockerfile
+      args:
+        # Locally-built image carrying a licensed PSS SINCAL 22.5 plus Python.
+        # Override to point at your own SINCAL-bearing base image.
+        SINCAL_BASE: sincal-com:22.5
+    container_name: dt-sincal-solver
     environment:
       - BUS_TRANSPORT=nats
       - NATS_URL=nats://broker:4222
-      - PROFILES_DIR=/app/data/profiles
-      - NETWORKS_DIR=/app/data/networks
-    # Wait until the solver, DR controller, and prosumer twins are bus-ready
-    # (not just started) so simulate/coordinated runs can reach them immediately.
+      - BUS_PREFIX=openfmb
+      - SINCAL_WORK_DIR=C:\sincal_work
+      - READY_FILE=C:\ready\service.ready
+      # Each session's project is created by SINCAL's own SinDBCreate.exe.
+      # Set SINCAL_TEMPLATE to clone an existing project instead, so every
+      # run inherits its house settings (mount it via OPTION B below).
+    # volumes:
+    #   # OPTION B — mount a host SINCAL installation, and optionally a
+    #   # template project to clone instead of creating one with SinDBCreate.
+    #   - "C:\\Program Files\\Siemens\\PSS SINCAL Platform 22.5:C:\\sincal:ro"
+    #   - ./sincal-solver/template:C:\sincal_template:ro
+    depends_on:
+      broker:
+        condition: service_started
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,sys; sys.exit(0 if os.path.exists('C:/ready/service.ready') else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+  simulation-engine:
+    build:
+      context: ./simulation-engine
+      dockerfile: Dockerfile
+    container_name: dt-sim-engine
+    environment:
+      - BUS_TRANSPORT=nats
+      - NATS_URL=nats://broker:4222
+      - PROFILES_DIR=C:\app\data\profiles
+      - NETWORKS_DIR=C:\app\data\networks
+    # Wait until the default solver and the control modules are bus-ready (not
+    # just started) so simulate/coordinated runs can reach them immediately.
+    # sincal-solver is deliberately NOT a dependency: it is an optional
+    # alternative backend, and a run that never selects it must not block on it.
     depends_on:
       broker:
         condition: service_started
@@ -113,64 +149,68 @@ services:
         condition: service_healthy
       prosumer-shadow-twins:
         condition: service_healthy
-    # Recover if the process exits (e.g. the broker bounces and drops the bus).
     restart: on-failure
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health', timeout=2)"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 20s
+      start_period: 60s
     ports:
       - "8002:8002"
 
   dr-controller:
-    build: ./dr-controller
+    build:
+      context: ./dr-controller
+      dockerfile: Dockerfile
     container_name: dt-dr-controller
     environment:
       - BUS_TRANSPORT=nats
       - NATS_URL=nats://broker:4222
       - BUS_PREFIX=openfmb
+      - READY_FILE=C:\ready\service.ready
     depends_on:
       broker:
         condition: service_started
     restart: on-failure
-    # Healthy once the bus participant has connected and subscribed (main()
-    # writes the readiness marker after participant.start()).
     healthcheck:
-      test: ["CMD-SHELL", "test -f /tmp/service.ready"]
+      test: ["CMD", "python", "-c", "import os,sys; sys.exit(0 if os.path.exists('C:/ready/service.ready') else 1)"]
       interval: 10s
-      timeout: 3s
+      timeout: 5s
       retries: 5
-      start_period: 30s
+      start_period: 60s
 
   prosumer-shadow-twins:
-    build: ./prosumer-shadow-twins
+    build:
+      context: ./prosumer-shadow-twins
+      dockerfile: Dockerfile
     container_name: dt-prosumer-shadow-twins
     environment:
       - BUS_TRANSPORT=nats
       - NATS_URL=nats://broker:4222
       - BUS_PREFIX=openfmb
+      - READY_FILE=C:\ready\service.ready
     depends_on:
       broker:
         condition: service_started
     restart: on-failure
     healthcheck:
-      test: ["CMD-SHELL", "test -f /tmp/service.ready"]
+      test: ["CMD", "python", "-c", "import os,sys; sys.exit(0 if os.path.exists('C:/ready/service.ready') else 1)"]
       interval: 10s
-      timeout: 3s
+      timeout: 5s
       retries: 5
-      start_period: 30s
+      start_period: 60s
 
   ui:
-    build: ./ui
+    build:
+      context: ./ui
+      dockerfile: Dockerfile
     container_name: dt-ui
     environment:
       - PORT=3000
       - NATS_URL=nats://broker:4222
       - BUS_PREFIX=openfmb
-      - OUTPUTS_DIR=/app/outputs
-    # Wait until both engines are serving before exposing the control panel.
+      - OUTPUTS_DIR=C:\app\outputs
     depends_on:
       broker:
         condition: service_started
@@ -183,17 +223,14 @@ services:
       # container-internal port stays 3000.
       - "3001:3000"
     volumes:
-      - ./outputs:/app/outputs
-      # Live-edit the UI without rebuilding the image (refresh browser for
-      # static changes; `docker compose restart ui` after server.js changes).
-      - ./ui/public:/app/public:ro
-      - ./ui/server.js:/app/server.js:ro
-      - ./ui/bus.js:/app/bus.js:ro
+      # A named volume, not a host bind. OneDrive-backed paths cannot be mounted
+      # into Windows containers, so persisted output lives in a Docker volume.
+      # Retrieve it with:
+      #   docker compose cp ui:C:/app/outputs ./outputs
+      - dt_outputs:C:\app\outputs
+    # ui/public, server.js and bus.js are baked into the image, so rebuild the
+    # service after changing them:
+    #   docker compose up -d --build ui
 
-# sincal-solver (PSS SINCAL adapter) is NOT part of this compose file: SINCAL
-# is licensed, Windows-only software, so the adapter must run where SINCAL is
-# installed — either directly on the Windows host:
-#     cd sincal-solver && pip install -r requirements.txt
-#     set NATS_URL=nats://localhost:4222 && python -m sincal_solver.main
-# or as a Windows container (see sincal-solver/Dockerfile.windows). Once it is
-# on the bus, select it per run with "solver": "sincal" in the simulate request.
+volumes:
+  dt_outputs:

@@ -15,8 +15,8 @@ logger = logging.getLogger(__name__)
 # Readiness marker for the container healthcheck: written once the bus
 # participant is connected and subscribed (see main()).
 # Path is overridable so a container healthcheck can probe a known location
-# (the Windows images point READY_FILE at C:\ready\service.ready — the Linux
-# default temp dir is not a convenient probe target there).
+# (the images point READY_FILE at C:\ready\service.ready; the default temp
+# dir is not a convenient probe target inside a container).
 READY_FILE = os.environ.get(
     "READY_FILE", os.path.join(tempfile.gettempdir(), "service.ready")
 )

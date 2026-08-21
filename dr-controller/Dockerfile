@@ -1,10 +1,13 @@
-FROM python:3.11-slim
+# DR controller — Windows container (Containerised Digital Twin Platform v5.0).
+FROM python:3.12-windowsservercore-ltsc2025
 
-WORKDIR /app
+WORKDIR C:\\app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --timeout 120 --retries 5 -r requirements.txt
 
 COPY app/ ./app/
+
+RUN mkdir C:\\ready
 
 CMD ["python", "-m", "app.main"]

@@ -3,6 +3,6 @@ __pycache__/
 .pytest_cache/
 .git/
 .dockerignore
-Dockerfile.windows
+Dockerfile
 tests/
 sincal_work/

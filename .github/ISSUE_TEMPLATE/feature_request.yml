@@ -1,0 +1,35 @@
+name: Feature or model request
+description: A capability, KPI, DER type, DR strategy or standard to support
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to study
+      description: The engineering question, not the implementation you have in mind.
+    validations:
+      required: true
+  - type: dropdown
+    id: registry
+    attributes:
+      label: Which extension point does this belong to
+      description: See Modularity in the README — most additions are a registry entry.
+      options:
+        - Load archetype
+        - DER element type
+        - KPI
+        - DR strategy
+        - Tariff
+        - Envelope allocation policy
+        - Solver backend
+        - Network importer / format
+        - None of these
+    validations:
+      required: true
+  - type: textarea
+    id: reference
+    attributes:
+      label: Standard or reference
+      description: >-
+        The standard, guideline or paper that defines the expected behaviour,
+        so the implementation can be checked against something.

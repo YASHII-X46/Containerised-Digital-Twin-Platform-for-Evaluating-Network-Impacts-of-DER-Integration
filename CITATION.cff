@@ -1,0 +1,31 @@
+cff-version: 1.2.0
+message: "If you use this software in academic work, please cite it as below."
+title: "Containerised Digital Twin Platform for Evaluating Network Impacts of DER Integration"
+abstract: >-
+  A containerised digital twin platform for distribution networks. It generates
+  per-bus load, PV, battery and EV profiles for any uploaded network, solves
+  single- or multi-day quasi-static time-series (QSTS) power flow on MV/LV
+  feeders behind a solver-agnostic bus contract (OpenDSS or PSS SINCAL),
+  coordinates demand response across per-prosumer shadow twins, and models the
+  Australian regulatory mechanisms governing DER export (AS/NZS 4777.2 inverter
+  responses and CSIP-Aus dynamic operating envelopes).
+type: software
+authors:
+  - family-names: Ediriweera
+    given-names: Yashwanth K.
+    affiliation: Swinburne University of Technology
+repository-code: "https://github.com/YASHII-X46/Containerised-Digital-Twin-Platform-for-Evaluating-Network-Impacts-of-DER-Integration"
+version: "5.0.0"
+date-released: "2026-08-21"
+license: Apache-2.0
+keywords:
+  - distribution-network
+  - digital-twin
+  - power-flow
+  - QSTS
+  - OpenDSS
+  - PSS-SINCAL
+  - distributed-energy-resources
+  - demand-response
+  - dynamic-operating-envelopes
+  - AS-NZS-4777.2

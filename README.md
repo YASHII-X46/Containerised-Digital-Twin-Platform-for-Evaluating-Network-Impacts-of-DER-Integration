@@ -2,12 +2,12 @@
 
 # Containerised Digital Twin Platform for Evaluating Network Impacts of DER Integration
 
-**Solver-agnostic QSTS power flow, Australian DER regulatory modelling, seven containers on one message bus**
+**Solver-agnostic QSTS power flow, Australian DER regulatory modelling, eight containers on one message bus**
 
 [![Licence](https://img.shields.io/badge/licence-Apache--2.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-332%20passing-brightgreen.svg)](#verification)
+[![Tests](https://img.shields.io/badge/tests-453%20passing-brightgreen.svg)](#verification)
 [![Python](https://img.shields.io/badge/python-3.12-blue.svg)](#)
-[![Containers](https://img.shields.io/badge/containers-Linux%20%7C%20Windows-informational.svg)](WINDOWS.md)
+[![Containers](https://img.shields.io/badge/containers-Windows-informational.svg)](WINDOWS.md)
 [![Solvers](https://img.shields.io/badge/solvers-OpenDSS%20%7C%20PSS%20SINCAL-orange.svg)](#modularity-the-registries)
 
 </div>
@@ -20,13 +20,14 @@ Australian regulatory mechanisms that govern DER export (AS/NZS 4777.2 inverter
 responses, CSIP-Aus dynamic operating envelopes), and presents all of it through
 a browser control panel.
 
-It is built as seven containers on an OpenFMB/NATS message bus, developed as a
+It is built as eight containers on an OpenFMB/NATS message bus, developed as a
 final-year engineering project at Swinburne University of Technology.
 
-<!-- Add a control-panel screenshot here once captured, it is the single
-     highest-impact addition to this page:
-     ![Control panel](docs/images/control-panel.png)
--->
+![The control panel after a 96-step QSTS run on the IEEE 33-bus feeder: KPI tiles and the aggregate net-load duck curve](docs/images/control-panel.png)
+
+<div align="center"><sub>A one-day, 96-step QSTS study at 100% DER penetration on
+the IEEE 33-bus feeder — 96/96 timesteps converged in 0.68 s, with the PV-driven
+midday reverse flow and evening peak in the net-load curve.</sub></div>
 
 ## What makes it different
 
@@ -48,16 +49,16 @@ final-year engineering project at Swinburne University of Technology.
 
 ## Quick start
 
-Requires Docker Desktop and free ports `3001`, `4222`, `8222`, `8001`, `8002`.
+Requires Windows 11 Pro or better, Docker Desktop set to **Windows
+containers**, and free ports `3001`, `4222`, `8222`, `8001`, `8002`.
 
 ```bash
 docker compose up --build
 ```
 
 Then open **http://localhost:3001**, upload a network model, choose your
-scenario controls and run the pipeline. For the full Windows-container
-deployment, which is the only mode where PSS SINCAL runs as a compose service,
-see [WINDOWS.md](WINDOWS.md) and the [Run](#run) section.
+scenario controls and run the pipeline. Prerequisites, image sizes and the
+PSS SINCAL setup are in [WINDOWS.md](WINDOWS.md).
 
 ## Contents
 
@@ -90,7 +91,7 @@ talking to the UI server is the only HTTP in the stack.
 flowchart TB
     B["<b>Browser</b><br/>control panel"]
 
-    subgraph stack["Docker Compose stack &nbsp;·&nbsp; Linux or Windows containers"]
+    subgraph stack["Docker Compose stack &nbsp;·&nbsp; Windows containers"]
         direction TB
         UI["<b>ui</b><br/>Node.js · Express · host :3001"]
         BUS(["<b>broker</b> · NATS 2 &nbsp;—&nbsp; OpenFMB command / event bus<br/>:4222 &nbsp;·&nbsp; monitoring :8222"])
@@ -138,11 +139,11 @@ flowchart TB
     linkStyle 0 stroke:#64748b,stroke-width:1.5px
 ```
 
-No inter-container HTTP and no shared profile or result volume: profiles, QSTS
-summaries, KPIs and chart series all travel inline in NATS messages. Topics
-follow `{prefix}/command/{service}/{action}` and
-`{prefix}/event/{service}/{action}` with correlation ids. The engine HTTP ports
-(8001, 8002) are published for host-side debugging only.
+Every exchange between containers is a NATS message. Profiles, QSTS summaries,
+KPIs and chart series all travel inline in the payload, on topics
+`{prefix}/command/{service}/{action}` and `{prefix}/event/{service}/{action}`
+with correlation ids. The engine HTTP ports (8001, 8002) are published for
+host-side debugging, and the browser reaches the UI server over HTTP.
 
 ### How one study runs
 
@@ -208,44 +209,26 @@ dumb: no control logic, no optimisation policy.
 | `load-engine/` | FastAPI (Python) | Load, PV, BESS, and EV profile generation |
 | `simulation-engine/` | FastAPI (Python) | Solver-agnostic QSTS orchestration, KPIs, envelopes, DR |
 | `opendss-solver/` | NATS module (Python) | OpenDSS power flow behind the solver bus contract (default solver) |
-| `sincal-solver/` | NATS module (Python) | PSS SINCAL adapter — same contract; a first-class service under the Windows deployment, host-run under the Linux one |
+| `sincal-solver/` | NATS module (Python) | PSS SINCAL adapter behind the same solver bus contract |
 | `dr-controller/` | NATS module (Python) | DR strategies and DER control setpoints |
 | `prosumer-shadow-twins/` | NATS module (Python) | Per-prosumer twin state and outcomes |
 | `ui/` | Node.js / Express | Control panel and study runner |
-| `tools/` | Offline scripts | Plot/report generation (not required at runtime) |
-
-**All containers interconnect over the OpenFMB NATS bus only.** The single
-exception is the browser talking to the UI server. There is no inter-container
-HTTP and no shared profile/result volume — profiles, QSTS summaries, KPIs, and
-chart series travel inline in NATS messages. Topics follow
-`{prefix}/command/{service}/{action}` → `{prefix}/event/{service}/{action}`
-with correlation ids; engine HTTP ports (8001/8002) are published for
-host-side debugging only.
+| `tools/` | Offline scripts | Plot and report generation, run by hand |
 
 ---
 
 ## Run
 
-The stack ships **two complete deployment modes**. Docker Desktop runs either
-Linux or Windows containers, never both at once, so they are alternatives.
-
-**Linux containers (default).** Requirements: Docker Desktop (Linux engine)
-and free ports `3001`, `4222`, `8222`, `8001`, `8002`.
+All eight services — including the PSS SINCAL solver — run as Windows
+containers in one compose stack. Requires Windows 11 Pro or better with Docker
+Desktop set to Windows containers, and free ports `3001`, `4222`, `8222`,
+`8001`, `8002`.
 
 ```bash
 docker compose up --build
 ```
 
-**Windows containers (v5.0, SINCAL-capable).** Every service — including the
-PSS SINCAL solver — runs as a Windows container in one compose stack.
-Requires Windows 11 Pro or better with Docker Desktop switched to Windows
-containers:
-
-```bash
-docker compose -f docker-compose.windows.yml up --build
-```
-
-Full guide, base-image choices, footprint, and the SINCAL setup:
+Prerequisites, base-image choices, footprint and the SINCAL setup:
 **[WINDOWS.md](WINDOWS.md)**.
 
 Open **http://localhost:3001** (the host port is 3001 because 3000 commonly
@@ -253,12 +236,10 @@ hosts another local app; the container-internal port remains 3000). Upload a
 network model (the registry starts empty), pick your scenario controls, and
 run the pipeline.
 
-Local development: each engine runs standalone with `uvicorn app.main:app`
-and the UI with `npm start`, given a broker. Under the Linux compose, UI
-static assets and `server.js` are bind-mounted — a browser refresh picks up
-static changes and `docker compose restart ui` reloads the server. (Windows
-containers cannot bind-mount single files, so there `server.js` changes need
-an image rebuild; `ui/public` stays live.)
+Local development: each engine runs standalone with `uvicorn app.main:app` and
+the UI with `npm start`, given a broker. `ui/public` is bind-mounted, so a
+browser refresh picks up static changes; `server.js` lives in the image, so
+changing it means a rebuild of the `ui` service.
 
 ---
 
@@ -502,8 +483,8 @@ Full per-service tables live in each service's README.
 
 ## Verification
 
-- **332 automated tests** across the six Python services (load-engine 191,
-  simulation-engine 88, opendss-solver 22, sincal-solver 5, dr-controller 15,
+- **453 automated tests** across the six Python services (load-engine 191,
+  simulation-engine 121, opendss-solver 22, sincal-solver 93, dr-controller 15,
   prosumer-shadow-twins 11), including real-OpenDSS physics tests
   (multi-voltage solves, OLTC regulation, tap boosts, Volt-VAr/Volt-Watt
   voltage reduction, VUF on unbalanced solves, envelope enforcement). The
@@ -514,10 +495,11 @@ Full per-service tables live in each service's README.
   healthy).
 - Run everything locally: `python -m pytest -q` in each service directory.
 
-Scope notes (honest limits): quasi-static only (no dynamics, faults, or
-protection); three-wire model (no explicit neutral); control messaging is
-ideal within a timestep; profiles are calibrated-synthetic unless measured
-data is supplied via the CSV/weather-file paths.
+What the model covers: quasi-static, phasor-domain power flow at the timestep
+you choose, balanced or unbalanced, on a three-wire representation of the
+network. Control messaging resolves within a timestep. Profiles are
+calibrated-synthetic, and measured where you supply them through the CSV and
+weather-file paths.
 
 ---
 
@@ -532,15 +514,20 @@ sincal-solver/           PSS SINCAL adapter — same contract, needs licensed SI
 dr-controller/           NATS DR strategy/control service (+ tests)
 prosumer-shadow-twins/   NATS twin-state service (+ tests)
 ui/                      Express server + browser app (bind-mounted at runtime)
-sample-networks/         User network models and tooling (e.g. the Swinburne
-                         Hawthorn feeder in PSS/E RAW and CIM form, with
-                         single-line-diagram generators)
 outputs/                 UI-persisted summaries (bind-mounted)
 tools/                   Offline plotting / report scripts
-docker-compose.yml         Runs the whole stack (Linux containers)
-docker-compose.windows.yml Runs the whole stack incl. SINCAL (Windows containers)
-WINDOWS.md                 Windows-container deployment guide
+docker-compose.yml         Runs the whole stack (Windows containers)
+WINDOWS.md                 Deployment guide: prerequisites, sizes, SINCAL setup
+CONTRIBUTING.md            How to build, test and propose changes
+SECURITY.md                How to report a vulnerability
+CITATION.cff               Machine-readable citation metadata
+.github/workflows/ci.yml   Test suites on Python 3.12
 ```
+
+**Bring your own network.** Every engine is network-agnostic. Supply a feeder
+through the [network model format](#network-model-format) — JSON directly, or a
+PSS/E RAW/RAWX, CIM/CGMES XML or OpenDSS `.dss` file through the importers — and
+the whole stack runs on it: profiles, power flow, KPIs and control alike.
 
 ## Standards and data sources
 
@@ -556,12 +543,11 @@ data · IEEE 33-bus (Baran & Wu) test feeder in the test suites.
 
 ## Project status
 
-Active final-year engineering project. The stack runs end to end and its four
-Python services are covered by 332 automated tests, but it is research and
-teaching software rather than an operational utility tool. Read the scope notes
-under [Verification](#verification) before drawing conclusions from a study, and
-note in particular that this is a **quasi-static, phasor-domain** model: no
-electromagnetic transients, no dynamic stability, no protection operation.
+Active final-year engineering project. The stack runs end to end and its six
+Python services are covered by 453 automated tests. It is research and teaching
+software: a **quasi-static, phasor-domain** model of voltage, loading, losses,
+unbalance and DER interaction over time. Read
+[what the model covers](#verification) when interpreting a study.
 
 Issues and questions are welcome. If you are extending it, the registry tables
 under [Modularity](#modularity-the-registries) are the intended entry points.
@@ -573,28 +559,26 @@ Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) and
 
 Two boundaries worth stating plainly:
 
-- **PSS SINCAL is proprietary Siemens software and is not included.** The
-  `sincal-solver/` service is an adapter only; running it requires a separately
-  licensed PSS SINCAL installation on the machine that hosts it.
-- **The EMS design lineage is OpenEMS** (<https://openems.io>, EPL-2.0). Its
-  architecture and terminology are reproduced; none of its source code is
-  included.
+- **PSS SINCAL is proprietary Siemens software.** The `sincal-solver/` service
+  is an adapter: it drives a separately licensed PSS SINCAL installation on the
+  machine that hosts it.
+- **The EMS design lineage is OpenEMS** (<https://openems.io>, EPL-2.0), whose
+  architecture and terminology this design reproduces.
 
-Third-party dependencies are permissive: OpenDSSDirect.py, numpy, scipy, uvicorn
-and httpx (BSD-3-Clause), FastAPI, pydantic, pytest and Express (MIT), nats-py
-and NATS Server (Apache-2.0).
+Every third-party dependency is under a permissive licence; they are credited
+individually under [Acknowledgements](#acknowledgements).
 
 ## Citation
 
 If you use Containerised Digital Twin Platform for Evaluating Network Impacts of DER Integration in academic work, please cite it:
 
 ```bibtex
-@software{dtstack,
-  author  = {YOUR FULL NAME},
+@software{ediriweera2026derdigitaltwin,
+  author  = {Ediriweera, Yashwanth K.},
   title   = {Containerised Digital Twin Platform for Evaluating
              Network Impacts of DER Integration},
   year    = {2026},
-  school  = {Swinburne University of Technology},
+  institution = {Swinburne University of Technology},
   note    = {ENG40007 Final Year Project},
   url     = {https://github.com/YASHII-X46/Containerised-Digital-Twin-Platform-for-Evaluating-Network-Impacts-of-DER-Integration}
 }
@@ -606,3 +590,58 @@ Swinburne University of Technology (ENG40007). Site, building, zone and
 equipment data for the Hawthorn campus reference case is drawn from the i-Hub
 DCH5 project report as a **data source only**; none of that project's control
 technology, protocols or software is used here.
+
+This platform is assembled almost entirely from open-source work. Each project
+below retains its own licence and copyright, and is fetched at build time from
+its own distribution channel.
+
+**Power flow and numerics**
+
+| Project | Licence | Used for |
+|---|---|---|
+| [OpenDSS](https://sourceforge.net/projects/electricdss/) (EPRI) | BSD-3-Clause | The distribution power-flow engine behind `opendss-solver` |
+| [OpenDSSDirect.py](https://github.com/dss-extensions/OpenDSSDirect.py) | BSD-3-Clause | Python bindings to that engine (DSS-Extensions, NREL-derived) |
+| [NumPy](https://numpy.org) | BSD-3-Clause | Profile arrays and every per-timestep vector calculation |
+| [SciPy](https://scipy.org) | BSD-3-Clause | `linprog` for the `max_total` operating-envelope allocation |
+
+**Services and the message bus**
+
+| Project | Licence | Used for |
+|---|---|---|
+| [NATS Server](https://nats.io) (CNCF) | Apache-2.0 | The OpenFMB command/event bus every service speaks over |
+| [nats-py](https://github.com/nats-io/nats.py) | Apache-2.0 | NATS client in all six Python services |
+| [nats.js](https://github.com/nats-io/nats.js) | Apache-2.0 | NATS client in the Node control panel |
+| [FastAPI](https://fastapi.tiangolo.com) | MIT | HTTP surface of the Load and Simulation Engines |
+| [Uvicorn](https://www.uvicorn.org) | BSD-3-Clause | ASGI server for both engines |
+| [pydantic](https://docs.pydantic.dev) · pydantic-settings | MIT | Request/response schemas and environment configuration |
+| [AnyIO](https://github.com/agronholm/anyio) | MIT | Async primitives shared across the bus modules |
+| [HTTPX](https://www.python-httpx.org) | BSD-3-Clause | Async HTTP client used in tests and engine-to-engine checks |
+
+**Control panel**
+
+| Project | Licence | Used for |
+|---|---|---|
+| [Node.js](https://nodejs.org) | MIT | Runtime for the `ui` service |
+| [Express](https://expressjs.com) | MIT | The control panel's HTTP server |
+
+**Tooling, tests and packaging**
+
+| Project | Licence | Used for |
+|---|---|---|
+| [pytest](https://pytest.org) · pytest-asyncio | MIT · Apache-2.0 | The whole automated test suite |
+| [pywin32](https://github.com/mhammond/pywin32) | PSF | COM automation for the PSS SINCAL adapter (Windows only) |
+| [Python](https://python.org) | PSF | Language and the `python:3.12-windowsservercore` base images |
+| [Docker](https://www.docker.com) and Compose | Apache-2.0 | Running the eight-container stack |
+| [Mermaid](https://mermaid.js.org) | MIT | The architecture diagrams rendered in this README |
+
+**Concepts and specifications** (no code from these is included)
+
+| Source | Licence / body | Used for |
+|---|---|---|
+| [OpenEMS](https://openems.io) | EPL-2.0 | Design lineage and terminology for the EMS layer |
+| [OpenFMB](https://openfmb.ucaiug.org) | UCAIug | Command/event topic and payload patterns over NATS |
+| IEEE 33-bus feeder (Baran & Wu, 1989) | — | Reference network in the test suites |
+| [ACN-Data](https://ev.caltech.edu/dataset) (Caltech) | Research use | EV charging session statistics behind the EV profile model |
+
+The standards and calibration sources the models implement are listed
+separately under [Standards and data sources](#standards-and-data-sources).

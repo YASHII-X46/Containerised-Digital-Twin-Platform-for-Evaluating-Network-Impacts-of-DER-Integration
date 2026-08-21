@@ -1,7 +1,7 @@
 {
-  "name": "dt-stack-ui",
+  "name": "der-digital-twin-ui",
   "version": "1.0.0",
-  "description": "Node.js control panel for the DT-Stack load, simulation, and NATS pipeline",
+  "description": "Node.js control panel for the load, simulation and NATS pipeline of the Containerised Digital Twin Platform",
   "main": "server.js",
   "type": "commonjs",
   "scripts": {

@@ -12,6 +12,7 @@ or ``Infeeder.Flag_Lf`` names a current source instead of a voltage source, and
 neither mistake produces a parse error anywhere. See SINCAL-SCHEMA-NOTES.md.
 """
 
+import math
 import os
 import sqlite3
 import sys
@@ -29,11 +30,11 @@ COLUMNS = {
     "VoltageLevel": ["VoltLevel_ID", "Variant_ID", "Flag_Variant", "Name",
                      "ShortName", "Un", "Uop", "f"],
     "Node": ["Node_ID", "Variant_ID", "Flag_Variant", "Name", "ShortName",
-             "VoltLevel_ID", "Flag_Type", "Un", "Group_ID", "Flag_Pos",
-             "lat", "lon"],
+             "TextVal", "VoltLevel_ID", "Flag_Type", "Un", "Group_ID",
+             "Uul", "Ull", "Flag_Pos", "lat", "lon"],
     "Element": ["Element_ID", "Variant_ID", "Flag_Variant", "Type", "Name",
-                "ShortName", "VoltLevel_ID", "Flag_State", "Flag_Input",
-                "Group_ID"],
+                "ShortName", "Description", "TextVal", "VoltLevel_ID",
+                "Flag_State", "Flag_Input", "Group_ID"],
     "Terminal": ["Terminal_ID", "Variant_ID", "Flag_Variant", "Element_ID",
                  "Node_ID", "TerminalNo", "Flag_State", "Flag_Switch",
                  "Flag_Terminal"],
@@ -54,10 +55,35 @@ COLUMNS = {
                         "RG", "XG"],
     "CalcParameter": ["CalcParameter_ID", "Variant_ID", "Flag_LFmet",
                       "Flag_LFZ0", "ITmax"],
+    "NetworkGroup": ["Group_ID", "Variant_ID", "Flag_Variant", "Name",
+                     "ShortName"],
+    "DCInfeeder": ["Element_ID", "Variant_ID", "Flag_Variant", "Flag_DCtyp",
+                   "Flag_Lf", "Flag_Connect", "Sn_Inverter", "Ur_Inverter",
+                   "Eta_Inverter", "P", "Q", "fP", "fQ", "Pmax", "Pmin",
+                   "Flag_LfLimit", "EnergyStorage_ID"],
+    "GraphicText": ["GraphicText_ID", "Variant_ID", "Flag_Variant",
+                    "GraphicLayer_ID", "Font", "FontStyle", "FontSize",
+                    "TextAlign", "TextOrient", "TextColor", "Visible",
+                    "AdjustAngle", "Angle", "Pos1", "Pos2", "RowTextNo",
+                    "AngleTermNo"],
+    "GraphicBucklePoint": ["GraphicPoint_ID", "Variant_ID", "Flag_Variant",
+                           "GraphicTerminal_ID", "NoPoint", "PosX", "PosY"],
     "GraphicLayer": ["GraphicLayer_ID"],
+    "GraphicAreaTile": ["GraphicArea_ID", "Variant_ID", "Name", "AreaWidth",
+                        "AreaHeight", "GridWidth", "GridHeight", "ScalePaper",
+                        "ScaleReal", "Scale2", "Pos", "TileIndex"],
     "GraphicNode": ["GraphicNode_ID", "Variant_ID", "Flag_Variant",
-                    "GraphicLayer_ID", "Node_ID", "NodeStartX", "NodeStartY",
+                    "GraphicArea_ID", "GraphicLayer_ID", "GraphicType_ID",
+                    "Node_ID", "GraphicText_ID1", "NodeStartX", "NodeStartY",
                     "NodeEndX", "NodeEndY", "SymType", "NodeSize"],
+    "GraphicElement": ["GraphicElement_ID", "Variant_ID", "Flag_Variant",
+                       "GraphicArea_ID", "GraphicLayer_ID", "GraphicType_ID",
+                       "Element_ID", "GraphicText_ID1", "SymbolType",
+                       "SymbolNo", "SymbolDef", "SymCenterX", "SymCenterY",
+                       "SymbolSize"],
+    "GraphicTerminal": ["GraphicTerminal_ID", "Variant_ID", "Flag_Variant",
+                        "GraphicArea_ID", "GraphicElement_ID", "Terminal_ID",
+                        "GraphicNode_ID", "PosX", "PosY", "SwtType"],
 }
 
 NETWORK = {
@@ -73,17 +99,53 @@ NETWORK = {
     ],
     "branches": [
         {"branch_id": 1, "from_bus": 1, "to_bus": 2, "is_transformer": True,
+         "name": "supply transformer 11/0.4 kV 1250 kVA",
+         "label": "TX main 1250 kVA",
          "r_ohm": 1.02, "x_ohm": 5.23, "rating_kva": 1250.0,
          "connection": "delta_wye", "tap": 1.0375},
-        {"branch_id": 2, "from_bus": 2, "to_bus": 3, "r_ohm": 0.02,
-         "x_ohm": 0.01, "r0_ohm": 0.08, "x0_ohm": 0.03,
+        {"branch_id": 2, "from_bus": 2, "to_bus": 3,
+         "name": "board B submain, 4c 35 mm2 Cu XLPE",
+         "label": "Board B submain",
+         "r_ohm": 0.02, "x_ohm": 0.01, "r0_ohm": 0.08, "x0_ohm": 0.03,
          "rating_kva": 242.5, "length_m": 40},
     ],
 }
 
 
-@pytest.fixture()
-def conn():
+# The seeded sheet, in the centimetres GraphicAreaTile stores...
+SHEET_W_CM, SHEET_H_CM = 42.0, 29.7
+# ...and the metres the coordinates are actually in. Getting these two mixed up
+# is what put the drawing a hundred times too far out to be on the page.
+SHEET_W, SHEET_H = SHEET_W_CM / 100.0, SHEET_H_CM / 100.0
+
+# A model whose three buses sit in a right angle: bus 1 to 2 is due north, bus 2
+# to 3 due east, and the two spans are the same number of metres. A drawing that
+# preserves geography must therefore place them the same distance apart on the
+# page.
+_LAT0, _DLAT = -37.8224, 0.0009
+_DLON = _DLAT / math.cos(math.radians(abs(_LAT0 + _DLAT / 2)))
+GEO_NETWORK = {
+    "id": "geo", "name": "right angle", "base_voltage_kv": 11.0, "source_bus": 1,
+    "buses": [
+        {"bus_id": 1, "name": "grid supply point", "label": "Supply",
+         "base_kv": 11.0, "role": "zone_substation", "group": "Supply",
+         "base_load_kw": 0.0, "base_load_kvar": 0.0,
+         "lat": _LAT0, "lon": 145.0380},
+        {"bus_id": 2, "name": "lv main board", "label": "Main board",
+         "base_kv": 0.4, "role": "customer_substation", "group": "Board",
+         "base_load_kw": 300.0, "base_load_kvar": 100.0,
+         "lat": _LAT0 + _DLAT, "lon": 145.0380},
+        {"bus_id": 3, "name": "single phase board", "label": "Board B",
+         "base_kv": 0.4, "role": "board", "group": "Board",
+         "base_load_kw": 12.0, "base_load_kvar": 4.0, "phases": "b",
+         "lat": _LAT0 + _DLAT, "lon": 145.0380 + _DLON},
+    ],
+    "branches": NETWORK["branches"],
+}
+
+
+def _fresh():
+    """A stand-in project database, seeded the way SinDBCreate seeds one."""
     db = sqlite3.connect(":memory:")
     for table, cols in COLUMNS.items():
         db.execute("CREATE TABLE %s (%s)" % (table, ", ".join(cols)))
@@ -91,6 +153,22 @@ def conn():
     # SinDBCreate seeds one calculation-settings row on the symmetric default.
     db.execute("INSERT INTO CalcParameter (CalcParameter_ID, Variant_ID, "
                "Flag_LFmet, Flag_LFZ0, ITmax) VALUES (1, 1, 3, 1, 200)")
+    # ...and one A3 sheet, in the drawing's own units.
+    db.execute("INSERT INTO GraphicAreaTile (GraphicArea_ID, AreaWidth, "
+               "AreaHeight) VALUES (1, %s, %s)" % (SHEET_W_CM, SHEET_H_CM))
+    return db
+
+
+def _drawn():
+    """A fully drawn project, for the graphics tests."""
+    db = _fresh()
+    ss.export_network(db, GEO_NETWORK)
+    return db
+
+
+@pytest.fixture()
+def conn():
+    db = _fresh()
     yield db
     db.close()
 
@@ -308,7 +386,7 @@ def test_phases_are_not_written_by_default(conn):
 
 def test_phases_true_puts_the_declaration_on_the_load_terminal(conn):
     ss.export_network(conn, NETWORK, with_graphics=False, phases=True)
-    load_element = one(conn, "Element", Type=ss.TYPE_LOAD, Name="load_bus_3")
+    load_element = one(conn, "Element", Type=ss.TYPE_LOAD, ShortName="load_3")
     terminal = one(conn, "Terminal", Element_ID=load_element["Element_ID"])
     assert terminal["Flag_Terminal"] == 2                    # bus 3 declares "b"
 
@@ -343,7 +421,7 @@ def test_element_states_net_several_operations_onto_one_bus(conn):
     ])
     assert applied == 1
     load = one(conn, "Load", Element_ID=one(
-        conn, "Element", Type=ss.TYPE_LOAD, Name="load_bus_2")["Element_ID"])
+        conn, "Element", Type=ss.TYPE_LOAD, ShortName="load_2")["Element_ID"])
     assert load["P"] == pytest.approx((300.0 - 50.0 + 7.0) / 1000.0)
     assert load["Q"] == pytest.approx(0.1)
 
@@ -534,3 +612,435 @@ def test_power_summary_takes_the_whole_network_row(conn):
     summary = ss.read_power_summary(conn)
     assert summary["total_kw"] == pytest.approx(4231.4)
     assert summary["losses_kw"] == pytest.approx(99.3, abs=0.1)
+
+
+# --- the drawing ------------------------------------------------------------
+#
+# A project whose data is complete and solves can still open on an empty sheet.
+# Two ways that happens, both of which these pin: nodes placed outside the sheet
+# extent are not on the page at all, and node symbols with no GraphicElement or
+# GraphicTerminal rows have nothing joining them.
+
+def test_every_element_gets_a_symbol_on_the_drawing():
+    """84 elements in the model, 84 symbols on the sheet."""
+    db = _drawn()
+    assert len(rows(db, "GraphicElement")) == len(rows(db, "Element"))
+
+
+def test_every_terminal_ties_its_element_symbol_to_its_node_symbol():
+    """This is what actually draws a connection; without it nothing joins up."""
+    db = _drawn()
+    gts = rows(db, "GraphicTerminal")
+    assert len(gts) == len(rows(db, "Terminal"))
+    node_ids = {g["GraphicNode_ID"] for g in rows(db, "GraphicNode")}
+    elem_ids = {g["GraphicElement_ID"] for g in rows(db, "GraphicElement")}
+    for gt in gts:
+        assert gt["GraphicNode_ID"] in node_ids
+        assert gt["GraphicElement_ID"] in elem_ids
+
+
+def test_each_kind_of_element_gets_its_own_symbol():
+    db = _drawn()
+    by_symbol = {}
+    for g in rows(db, "GraphicElement"):
+        by_symbol.setdefault(g["SymbolType"], 0)
+        by_symbol[g["SymbolType"]] += 1
+    assert by_symbol[ss.SYMBOL_INFEEDER] == 1
+    assert by_symbol[ss.SYMBOL_TRANSFORMER] == 1
+    assert by_symbol[ss.SYMBOL_LINE] == 1
+    assert by_symbol[ss.SYMBOL_LOAD] == 2
+
+
+def test_nothing_is_drawn_outside_its_sheet():
+    """The whole reason a populated project can look empty.
+
+    The bound is each sheet's own extent in METRES, the unit coordinates are in,
+    not the centimetres the sheet size is stored in. A hundred times looser and
+    this would pass on a drawing nowhere near the page.
+    """
+    db = _drawn()
+    for area in rows(db, "GraphicAreaTile"):
+        w = area["AreaWidth"] / 100.0
+        h = area["AreaHeight"] / 100.0
+        aid = area["GraphicArea_ID"]
+        for g in rows(db, "GraphicNode"):
+            if g["GraphicArea_ID"] != aid:
+                continue
+            assert 0 <= g["NodeStartX"] <= w and 0 <= g["NodeEndX"] <= w, g
+            assert 0 <= g["NodeStartY"] <= h, g
+        for g in rows(db, "GraphicElement"):
+            if g["GraphicArea_ID"] != aid:
+                continue
+            assert 0 <= g["SymCenterX"] <= w, g
+            assert 0 <= g["SymCenterY"] <= h, g
+
+
+def test_the_drawing_fills_a_useful_part_of_the_page():
+    """A layout a hundred times too small is as unreadable as one too big."""
+    db = _drawn()
+    for area in rows(db, "GraphicAreaTile"):
+        aid = area["GraphicArea_ID"]
+        xs = [g["NodeStartX"] for g in rows(db, "GraphicNode")
+              if g["GraphicArea_ID"] == aid]
+        ys = [g["NodeStartY"] for g in rows(db, "GraphicNode")
+              if g["GraphicArea_ID"] == aid]
+        if len(xs) < 2:
+            continue
+        used = max(max(xs) - min(xs), max(ys) - min(ys))
+        assert used > 0.15 * min(area["AreaWidth"] / 100.0,
+                                 area["AreaHeight"] / 100.0)
+
+
+def test_symbols_are_big_enough_to_see():
+    """NodeSize counts 0.25 mm steps, so a value under 1 is sub-millimetre."""
+    db = _drawn()
+    for g in rows(db, "GraphicNode"):
+        # A busbar carries its size in its span, so 0 is correct there.
+        if g["SymType"] == ss.NODE_SYMBOL_CIRCLE:
+            assert g["NodeSize"] >= 2.0, g
+    assert all(g["SymbolSize"] >= 50 for g in rows(db, "GraphicElement"))
+
+
+def test_a_point_node_does_not_span_a_distance():
+    """Only a busbar has a start and an end apart; a point node is a point."""
+    db = _drawn()
+    for g in rows(db, "GraphicNode"):
+        if g["SymType"] == ss.NODE_SYMBOL_CIRCLE:
+            assert g["NodeStartX"] == g["NodeEndX"]
+            assert g["NodeStartY"] == g["NodeEndY"]
+
+
+def test_a_busbar_spans_far_enough_for_everything_that_lands_on_it():
+    """A bar shorter than its feeders is a drawing that cannot be read."""
+    db = _drawn()
+    bars = [g for g in rows(db, "GraphicNode")
+            if g["SymType"] == ss.NODE_SYMBOL_BUSBAR]
+    assert bars, "the model has switchboards, so it should have busbars"
+    for bar in bars:
+        lo, hi = sorted((bar["NodeStartX"], bar["NodeEndX"]))
+        landing = [t for t in rows(db, "GraphicTerminal")
+                   if t["GraphicNode_ID"] == bar["GraphicNode_ID"]]
+        for t in landing:
+            assert lo - 1e-9 <= t["PosX"] <= hi + 1e-9, (bar, t)
+
+
+def test_graphic_rows_name_a_sheet_that_exists():
+    """A graphic row without a sheet is drawn nowhere."""
+    db = _drawn()
+    sheets = {a["GraphicArea_ID"] for a in rows(db, "GraphicAreaTile")}
+    assert sheets
+    for table in ("GraphicNode", "GraphicElement", "GraphicTerminal"):
+        for g in rows(db, table):
+            assert g["GraphicArea_ID"] in sheets, (table, g)
+
+
+def test_every_carrier_points_at_a_text_row_that_exists():
+    """With no text row SINCAL falls back to its own annotation block, which is
+    the object's full name plus every parameter, and that is unreadable."""
+    db = _drawn()
+    ids = {t["GraphicText_ID"] for t in rows(db, "GraphicText")}
+    assert ids
+    for table in ("GraphicNode", "GraphicElement"):
+        for g in rows(db, table):
+            assert g["GraphicText_ID1"] in ids, (table, g)
+
+
+def test_labels_are_one_font_at_two_sizes():
+    db = _drawn()
+    texts = rows(db, "GraphicText")
+    assert {t["Font"] for t in texts} == {ss.LABEL_FONT}
+    assert len({t["FontSize"] for t in texts}) <= 2
+    assert all(t["Visible"] == 1 for t in texts)
+
+
+def test_a_connection_is_never_a_diagonal():
+    """Element symbol, then buckle points in order, then the attachment point.
+    Every segment of that path has to be axis aligned."""
+    db = _drawn()
+    elements = {e["GraphicElement_ID"]: e for e in rows(db, "GraphicElement")}
+    buckles = {}
+    for b in rows(db, "GraphicBucklePoint"):
+        buckles.setdefault(b["GraphicTerminal_ID"], []).append(b)
+    for t in rows(db, "GraphicTerminal"):
+        e = elements[t["GraphicElement_ID"]]
+        path = [(e["SymCenterX"], e["SymCenterY"])]
+        path += [(b["PosX"], b["PosY"]) for b in
+                 sorted(buckles.get(t["GraphicTerminal_ID"], []),
+                        key=lambda r: r["NoPoint"])]
+        path.append((t["PosX"], t["PosY"]))
+        for (x1, y1), (x2, y2) in zip(path, path[1:]):
+            assert abs(x1 - x2) < 1e-9 or abs(y1 - y2) < 1e-9, (t, path)
+
+
+def test_a_model_without_positions_still_draws():
+    """The drawing is schematic, so it no longer needs a geographic position.
+
+    The old geographic layout could not draw a network without lat and lon; a
+    plain feeder with no survey data is exactly the case that has to work.
+    """
+    db = _fresh()
+    plain = dict(NETWORK)
+    plain["buses"] = [{k: v for k, v in b.items() if k not in ("lat", "lon")}
+                      for b in NETWORK["buses"]]
+    ss.export_network(db, plain)
+    assert len(rows(db, "GraphicNode")) >= len(plain["buses"])
+    assert len(rows(db, "GraphicElement")) == len(rows(db, "Element"))
+
+
+def test_a_release_without_the_element_graphic_table_still_draws_nodes():
+    db = _fresh()
+    db.execute("DROP TABLE GraphicElement")
+    ss.export_network(db, GEO_NETWORK)
+    assert rows(db, "GraphicNode")
+
+
+def test_exporting_twice_replaces_rather_than_duplicates():
+    """The audit exports twice, balanced then unbalanced, into one project."""
+    db = _fresh()
+    ss.export_network(db, GEO_NETWORK)
+    first = {t: len(rows(db, t)) for t in ss.WRITTEN_TABLES}
+    ss.export_network(db, GEO_NETWORK, phases=True)
+    assert {t: len(rows(db, t)) for t in ss.WRITTEN_TABLES
+            if t != "NeutralPointImp"} == {t: n for t, n in first.items()
+                                           if t != "NeutralPointImp"}
+
+
+def test_a_re_export_switches_the_project_between_the_two_studies():
+    db = _fresh()
+    ss.export_network(db, GEO_NETWORK, phases=True)
+    assert rows(db, "CalcParameter")[0]["Flag_LFmet"] == ss.LFMET_UNBALANCED_PHASES
+    assert len(rows(db, "NeutralPointImp")) == 1
+    ss.export_network(db, GEO_NETWORK, phases=False)
+    assert rows(db, "CalcParameter")[0]["Flag_LFmet"] == ss.LFMET_ADMITTANCE
+    assert rows(db, "NeutralPointImp") == []
+
+
+def test_the_sheet_size_is_written_not_inherited():
+    """The drawing sets its own page.
+
+    The geographic layout used to scale itself to whatever page the project
+    happened to carry. A schematic sizes the page to the drawing instead, so a
+    project seeded at some other paper size is overwritten rather than obeyed.
+    """
+    db = _fresh()
+    db.execute("UPDATE GraphicAreaTile SET AreaWidth = 9.8, AreaHeight = 9.6")
+    ss.export_network(db, GEO_NETWORK)
+    for area in rows(db, "GraphicAreaTile"):
+        assert area["AreaWidth"] == pytest.approx(SHEET_W_CM)
+        assert area["AreaHeight"] == pytest.approx(SHEET_H_CM)
+
+
+# --- identity ---------------------------------------------------------------
+#
+# Three fields, three jobs. Doing all three with Name is what captioned the
+# drawing with sentences and then truncated them at 50 characters.
+
+def test_shortname_is_the_model_id_and_fits_its_column():
+    db = _drawn()
+    seen = set()
+    for table in ("Node", "Element"):
+        for r in rows(db, table):
+            assert len(r["ShortName"]) <= 8, r
+            assert r["ShortName"] not in seen, ("duplicate short name", r)
+            seen.add(r["ShortName"])
+    for r in rows(db, "Node"):
+        assert r["ShortName"] == "bus_%d" % r["Node_ID"]
+
+
+def test_name_is_a_drawable_label_not_a_sentence():
+    db = _drawn()
+    for table in ("Node", "Element"):
+        for r in rows(db, table):
+            assert len(r["Name"]) <= ss.LABEL_CHARS, r
+
+
+def test_no_name_repeats_a_word_consecutively():
+    """This is what produced ATC ATC101 and Sports Sports aquatic."""
+    db = _drawn()
+    for table in ("Node", "Element"):
+        for r in rows(db, table):
+            words = r["Name"].split()
+            assert all(a.lower() != b.lower()
+                       for a, b in zip(words, words[1:])), r
+
+
+def test_no_name_contains_its_own_shortname():
+    db = _drawn()
+    for table in ("Node", "Element"):
+        for r in rows(db, table):
+            assert r["ShortName"] not in r["Name"], r
+
+
+def test_the_full_description_is_kept_somewhere():
+    """The label is short by design, so nothing may be lost in making it."""
+    db = _drawn()
+    for r in rows(db, "Node"):
+        assert r["TextVal"], r
+    for r in rows(db, "Element"):
+        assert r["TextVal"] or r["Description"], r
+
+
+# --- typing, grouping, limits ----------------------------------------------
+
+def test_a_node_is_typed_by_the_role_the_model_gives_it():
+    db = _drawn()
+    by_id = {int(b["bus_id"]): b for b in GEO_NETWORK["buses"]}
+    for r in rows(db, "Node"):
+        role = by_id[r["Node_ID"]].get("role")
+        assert r["Flag_Type"] == ss.ROLE_NODE_TYPE.get(role, ss.NODE_TYPE_NODE)
+        assert r["Flag_Type"] != 0, "0 is not a member of the node type set"
+
+
+def test_every_node_carries_voltage_limits():
+    """Without them SINCAL cannot flag a voltage violation by itself."""
+    db = _drawn()
+    for r in rows(db, "Node"):
+        assert r["Uul"] == ss.VOLTAGE_UPPER_LIMIT_PCT
+        assert r["Ull"] == ss.VOLTAGE_LOWER_LIMIT_PCT
+
+
+def test_the_model_grouping_is_carried_into_network_areas():
+    db = _drawn()
+    groups = {g["Name"]: g["Group_ID"] for g in rows(db, "NetworkGroup")}
+    assert set(groups) == {b.get("group") for b in GEO_NETWORK["buses"]}
+    for r in rows(db, "Node"):
+        assert r["Group_ID"] in groups.values()
+
+
+def test_a_model_with_no_grouping_falls_back_to_one_area():
+    db = _fresh()
+    plain = dict(GEO_NETWORK)
+    plain["buses"] = [{k: v for k, v in b.items() if k != "group"}
+                      for b in GEO_NETWORK["buses"]]
+    ss.export_network(db, plain)
+    assert all(r["Group_ID"] == ss.GROUP_ID for r in rows(db, "Node"))
+
+
+# --- the DER ----------------------------------------------------------------
+
+DER_NETWORK = dict(GEO_NETWORK)
+DER_NETWORK["buses"] = [
+    dict(b, der={"pv_kwp": 32.76, "inverter_kva": 30.0, "unit_count": 3,
+                 "bess_kwh": 30.6, "bess_kw": 15.36})
+    if b["bus_id"] == 3 else b
+    for b in GEO_NETWORK["buses"]]
+
+
+def _with_der():
+    db = _fresh()
+    ss.export_network(db, DER_NETWORK)
+    return db
+
+
+def test_the_der_reaches_sincal_at_all():
+    """The project is about DER integration, and the DER used to be absent
+    from the SINCAL description of the network entirely."""
+    db = _with_der()
+    assert len(rows(db, "DCInfeeder")) == 1
+    assert one(db, "Element", Type=ss.TYPE_DCINFEEDER)["ShortName"] == "der_3"
+
+
+def test_the_der_is_one_element_because_the_inverters_are_hybrid():
+    """Sungrow SH10RT Hybrid inverters put the array and the battery on one
+    shared DC bus behind a single AC connection (DCH5 report, Table 1). Two
+    elements would imply two AC interfaces and would let the plant export
+    twice its inverter rating."""
+    db = _with_der()
+    assert len(rows(db, "DCInfeeder")) == 1
+
+
+def test_the_der_is_rated_at_its_inverter_not_its_panels():
+    """32.76 kWp behind a 30 kVA inverter is a DC to AC ratio of 1.09, which
+    is ordinary practice. The inverter clips, so the network never sees more
+    than 30 kW however sunny it is."""
+    db = _with_der()
+    der = rows(db, "DCInfeeder")[0]
+    assert der["Sn_Inverter"] == pytest.approx(0.030)
+    assert der["Pmax"] == pytest.approx(0.030)
+
+
+def test_the_battery_can_absorb_as_well_as_deliver():
+    """A battery modelled as a generator that never charges is wrong."""
+    db = _with_der()
+    der = rows(db, "DCInfeeder")[0]
+    assert der["Pmin"] == pytest.approx(-0.01536)
+    assert der["Pmin"] < 0 < der["Pmax"]
+
+
+def test_the_der_ships_out_of_service():
+    """So the acceptance baseline is the same network with and without it."""
+    db = _with_der()
+    der = rows(db, "DCInfeeder")[0]
+    assert der["P"] == 0.0 and der["Q"] == 0.0
+
+
+def test_the_der_is_a_plain_load_flow_injection():
+    db = _with_der()
+    der = rows(db, "DCInfeeder")[0]
+    assert der["Flag_Lf"] == ss.DC_LF_PQ == 1
+    assert der["Flag_DCtyp"] == ss.DC_TYPE_PHOTOVOLTAIC == 7
+    assert der["Flag_Connect"] == ss.DC_CONNECT_DIRECT
+
+
+def test_the_battery_has_no_state_of_charge_and_that_is_deliberate():
+    """CheckLicense EL ESP returns 6 on this licence, so the energy storage
+    module is unavailable. The battery is a signed injection and nothing more,
+    and its energy lives in the CIM and in the scenario preset."""
+    db = _with_der()
+    assert rows(db, "DCInfeeder")[0]["EnergyStorage_ID"] == 0
+
+
+def test_the_der_gets_a_converter_symbol_of_its_own():
+    db = _with_der()
+    element = one(db, "Element", Type=ss.TYPE_DCINFEEDER)
+    drawn = [g for g in rows(db, "GraphicElement")
+             if g["Element_ID"] == element["Element_ID"]]
+    assert drawn
+    assert all(g["SymbolType"] == ss.SYMBOL_DCINFEEDER == 193 for g in drawn)
+
+
+def test_a_model_without_der_writes_none():
+    assert rows(_drawn(), "DCInfeeder") == []
+
+
+# --- sheets -----------------------------------------------------------------
+
+def test_every_element_is_drawn_exactly_once_across_the_sheets():
+    db = _drawn()
+    drawn = [g["Element_ID"] for g in rows(db, "GraphicElement")]
+    assert sorted(drawn) == sorted(r["Element_ID"] for r in rows(db, "Element"))
+
+
+def test_every_terminal_is_drawn_exactly_once_across_the_sheets():
+    db = _drawn()
+    drawn = [g["Terminal_ID"] for g in rows(db, "GraphicTerminal")]
+    assert sorted(drawn) == sorted(
+        r["Terminal_ID"] for r in rows(db, "Terminal"))
+
+
+def test_an_element_has_both_its_terminals_on_its_own_sheet():
+    """A run that leaves the page is a drawing nobody can follow."""
+    db = _drawn()
+    area_of = {g["GraphicElement_ID"]: g["GraphicArea_ID"]
+               for g in rows(db, "GraphicElement")}
+    for t in rows(db, "GraphicTerminal"):
+        assert t["GraphicArea_ID"] == area_of[t["GraphicElement_ID"]], t
+
+
+# --- determinism ------------------------------------------------------------
+
+def test_two_builds_of_one_model_are_identical():
+    """Ids are derived from the model, so nothing depends on iteration order."""
+    def snapshot():
+        db = _fresh()
+        ss.export_network(db, DER_NETWORK)
+        out = []
+        for table in ss.WRITTEN_TABLES:
+            try:
+                out.append((table, rows(db, table)))
+            except sqlite3.Error:
+                pass
+        db.close()
+        return out
+
+    assert snapshot() == snapshot()

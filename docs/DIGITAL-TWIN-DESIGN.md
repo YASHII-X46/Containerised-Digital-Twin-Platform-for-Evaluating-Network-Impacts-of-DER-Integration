@@ -79,7 +79,7 @@ telemetry-gateway ──frames──▶ state-estimator ──estimates──┐
 
 Each new service copies the `dr-controller` template exactly: `app/bus/`,
 `app/config.py`, `app/main.py`, a readiness marker honouring `READY_FILE`,
-loopback transport for tests, `Dockerfile` plus `Dockerfile.windows`,
+loopback transport for tests, a `Dockerfile`,
 `.dockerignore`, `pytest.ini`, `README.md` and `tests/`.
 
 ### 4.1 The orchestrator stays a separate service

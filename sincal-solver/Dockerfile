@@ -1,4 +1,4 @@
-# PSS SINCAL solver adapter, Windows container (DT-Stack v5.0).
+# PSS SINCAL solver adapter, Windows container (Containerised Digital Twin Platform v5.0).
 #
 # Built on the locally-built `sincal-com` image, which already carries a
 # licensed PSS SINCAL 22.5 installation plus Python 3.12, pywin32 and nats-py.
@@ -7,7 +7,7 @@
 # be redistributed here. Build it yourself first (see README.md), or override
 # the base with:
 #
-#     docker compose -f docker-compose.windows.yml build \
+#     docker compose build \
 #       --build-arg SINCAL_BASE=my-sincal-image:tag sincal-solver
 #
 # Without a SINCAL-bearing base the service still starts and reports

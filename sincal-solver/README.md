@@ -29,32 +29,33 @@ replaces it.
 PSS SINCAL is **proprietary, licensed, Windows-only** software driven through
 its COM automation interface (`Sincal.Simulation`). Consequences:
 
-- It cannot ship inside a Linux Docker image, so this service is **not** in
-  the stack's `docker compose up` (that compose file uses the Linux engine).
-- Run this adapter **where a licensed SINCAL is installed**: either directly
-  on the Windows host (`pip install -r requirements.txt`, then
-  `python -m sincal_solver.main` with `NATS_URL=nats://localhost:4222`), or
-  as a Windows container built from `Dockerfile.windows` with your licensed
-  installer added.
+- Run this adapter **where a licensed SINCAL is installed**. In the stack it
+  is a Windows container built from `Dockerfile`, on a base image carrying
+  your licensed installation (build arg `SINCAL_BASE`).
+- It also runs directly on a Windows host for development:
+  `pip install -r requirements.txt`, then `python -m sincal_solver.main` with
+  `NATS_URL=nats://localhost:4222`.
 - Without SINCAL present, the service still starts and answers `health`
   (reporting `sincal_available: false`) and fails `build` with a clear error
   event — the Simulation Engine surfaces that as the simulate error.
 
-## Completion checklist (needs a licensed SINCAL environment)
+## Status (needs a licensed SINCAL environment to run)
 
-The COM lifecycle, contract handlers, per-step update mapping, result
-readback, and per-session project cloning are implemented. Setup: create one
-**empty project** in the SINCAL GUI and point `SINCAL_TEMPLATE` at its `.sin`
-file — the adapter clones it (plus its `<name>_files` folder) per session.
-Two integration points intentionally raise `SincalUnavailable` until
-completed against your installation:
+Complete and exercised end to end: the COM lifecycle, the contract handlers,
+per-session project creation, the network export, per-step P/Q updates and
+result readback. Driven against a 48-bus MV/LV model it agrees with OpenDSS to
+within the transformer magnetising current and iron losses, balanced and
+unbalanced.
 
-1. `SincalEngine._export_network` — after the clone, insert
-   `Node`/`Line`/`TwoWindingTransformer`/`Load`/`DCInfeeder` rows from the
-   stack's network model dict into the cloned project database (bus ids
-   preserved in element names; Access or SQLite per the template's storage).
-2. `SincalEngine._write_element_states` — per-step P/Q updates on those rows
-   via the SINCAL database interface.
+Each session gets its own project, created with SINCAL's `SinDBCreate.exe`
+(`/DBSYS:SQLITE /TYPE:E`). Set `SINCAL_TEMPLATE` to an existing `.sin` to have
+every run inherit that project's house settings; the adapter then clones the
+file together with its `<name>_files` folder.
+
+Model rows are written by `sincal_schema`, which matches every write against the
+columns the installed release carries, so the mapping holds across SINCAL
+versions. That module lives in two places by design — the generators keep a copy
+and this package vendors one — and a test asserts the two are byte identical.
 
 **PSS SINCAL Xplore note:** the free Xplore edition includes the COM
 automation server (verified against 22.5: `Sincal.Simulation` dispatches),

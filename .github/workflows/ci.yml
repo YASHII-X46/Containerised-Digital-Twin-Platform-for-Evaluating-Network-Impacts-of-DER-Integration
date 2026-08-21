@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# The images are Windows containers on python:3.12-windowsservercore-ltsc2025.
+# GitHub-hosted runners cannot build them — the bases are multi-GB and tied to a
+# host generation the runners do not provide — so image builds stay local and CI
+# covers the Python suites on the interpreter version the containers run.
+jobs:
+  tests:
+    name: ${{ matrix.service }}
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - load-engine
+          - simulation-engine
+          - opendss-solver
+          - sincal-solver
+          - dr-controller
+          - prosumer-shadow-twins
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: ${{ matrix.service }}/requirements*.txt
+
+      - name: Install dependencies
+        shell: bash
+        working-directory: ${{ matrix.service }}
+        # simulation-engine needs the dev extras: its suite runs the real
+        # opendss-solver in-process on the loopback bus.
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements-dev.txt ]; then
+            pip install -r requirements-dev.txt
+          else
+            pip install -r requirements.txt
+          fi
+
+      - name: Run tests
+        shell: bash
+        working-directory: ${{ matrix.service }}
+        run: python -m pytest -q

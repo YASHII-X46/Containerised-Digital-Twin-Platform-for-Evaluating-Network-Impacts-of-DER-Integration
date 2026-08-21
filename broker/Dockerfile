@@ -1,6 +1,6 @@
-# NATS broker, Windows container (DT-Stack v5.0).
+# NATS broker, Windows container (Containerised Digital Twin Platform v5.0).
 #
-# The Linux deployment bind-mounts broker/nats.conf. That is not possible here:
+# nats.conf is baked into the image rather than bind-mounted:
 # this repository lives in OneDrive, and a Windows container cannot read a
 # bind mount backed by the OneDrive cloud-files filter. Reading such a mount
 # fails with "The file cannot be accessed by the system", which surfaces as
